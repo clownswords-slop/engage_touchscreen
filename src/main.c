@@ -60,10 +60,14 @@ static void dbg_ext(const char*p);
 static int dg_n, dg_i, dg_hold; static float dg_x0, dg_y0, dg_x1, dg_y1;
 #endif
 
+#ifdef TM_DEBUG
+static s32 dbg_ls_x, dbg_ls_y; static int dbg_ls_n;   // debug: left stick override for n frames ("ls x y n")
+#endif
 static void frame_tick(void){
   g_poll++; g_scr_w=0; menu_frame();
 #ifdef TM_DEBUG
   if((g_poll%10)==0) poll_cmd();
+  if(dbg_ls_n>0) dbg_ls_n--;
   if(dbg_tap){ dbg_tap=0; on_tap((float)dbg_tap_x,(float)dbg_tap_y); }
   if(inj_frames>0){ inj_frames--; cur_inject_dbg=inj_buttons; } else cur_inject_dbg=0;
   if(mash_n>0){ mash_n--; if((mash_i++%mash_period)<2) cur_inject_dbg|=mash_mask; }
@@ -118,6 +122,9 @@ static void process(NpadState*s,int n,u32 id,int h,u64 lr){
   if(!g_pad_hooked && h!=H_LEFT && h!=H_RIGHT){ static int last_h=-1; if(last_h<0) last_h=h; if(h==last_h) frame_tick(); }   // fallback without the Pad hook
   if(s[0].buttons&0xffffu) g_touch_mode=0;   // real pad input brings the cursor back
   for(int i=0;i<n;i++){ s[i].buttons|=g_inject; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } }
+#ifdef TM_DEBUG
+  if(dbg_ls_n>0){ for(int i=0;i<n;i++){ s[i].l.x=dbg_ls_x; s[i].l.y=dbg_ls_y; } }
+#endif
 }
 
 #define STATES(H,name) int name(NpadState*s,int n,const u32*id){ resolve(); if(!r_states[H]){ memset(s,0,sizeof(*s)*(n>0?n:0)); return 0; } \
@@ -175,6 +182,7 @@ static void dbg_ext(const char*p){
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
   else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
+  else if(starts(p,"ls")){ p+=2; dbg_ls_x=(s32)(s64)parse_num(&p); dbg_ls_y=(s32)(s64)parse_num(&p); dbg_ls_n=(int)parse_num(&p); os("ls\n"); }
   else if(starts(p,"rs")){ p+=2; s32 x=(s32)(s64)parse_num(&p), y=(s32)(s64)parse_num(&p); int n=(int)parse_num(&p); rs_push(x,y,n?n:10,4); os("rs\n"); }
   else if(starts(p,"bir")){ p+=3; u64 off=parse_num(&p); if(!off) off=0x40; int d=(int)parse_num(&p); if(!d) d=6; os("bir "); ox(g_bir); oc('\n');
     if(uobj_ok(g_bir)){ u64 tr=any_transform(RD64(g_bir+off)); g_tree_n=0; if(tr) dbg_tree(tr,0,d); } }
@@ -187,7 +195,7 @@ static void dbg_ext(const char*p){
   else if(starts(p,"tscr")){ p+=4; int x=(int)parse_num(&p), z=(int)parse_num(&p); float sx,sy; if(tile_screen(x,z,&sx,&sy)){ os("scr "); oi((s64)sx); oc(32); oi((s64)sy); oc(10); } else os("none"); }
   else if(starts(p,"units")){   // UnitPool.Get(i): x,z, force type, ident
     for(int i=0;i<250;i++){ u64 u=((u64(*)(int,u64))M(0x1c53f80))(i,0); if(!u||!mem_ok(u)) continue; u64 f=RD64(u+0x50); if(!f||!mem_ok(f)) continue;
-      oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); oc('\n'); } }
+      oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); os(" hp "); oi(RD8(u+0x8c)); oc('\n'); } }
   else if(starts(p,"label")){ p+=5; u64 q=parse_num(&p); os("label "); oi(((int(*)(u64,u64))M(0x281eb10))(q,0)); oc('\n'); }
   else if(starts(p,"drag")){ p+=4; dg_x0=(float)(s64)parse_num(&p); dg_y0=(float)(s64)parse_num(&p); dg_x1=(float)(s64)parse_num(&p); dg_y1=(float)(s64)parse_num(&p);
     dg_n=(int)parse_num(&p); dg_hold=(int)parse_num(&p); dg_i=0; os("drag\n"); }

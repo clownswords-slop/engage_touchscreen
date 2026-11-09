@@ -28,5 +28,10 @@ arrive as touches.
 - Battle forecast: tap the "< L weapon R >" arrows to change the weapon. With two enemies in range, tap the other one to switch
   targets (tap it again to attack).
 
+- Battle map: drag up / down to tilt the camera (drag down = lower and closer).
+- Explore fields: drag to turn the camera; tap the "(A) Talk" label over someone to talk to them; tap the corner prompts.
+- Settings: a new "Touchscreen" entry with Horizontal / Vertical Camera Sensitivity.
+- Storehouse: tap a category icon (or the arrows) to switch category. Bond popups, "STAGE CLEAR!" and "GAME OVER": tap to continue.
+
 ## Not done yet
 See `HANDOFF.md`.

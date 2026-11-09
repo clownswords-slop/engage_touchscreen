@@ -84,10 +84,23 @@ static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
   return 1; }
+// Storehouse (App.MaterialListMenu): category icons "< ALL gift food material other >" (content = m_menuContent +0x70,
+// MaterialListMenuContent: +0xe8 Category, +0xf8 m_CategoryIconList List<Image>, icon i = category i). A tap on an icon calls
+// the menu's own KeyRight / KeyLeft (vtable 43 / 42) until that category is current (instant, no d-pad steps).
+static int matlist_cat_tap(u64 m,float x,float y){ u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 l=RD64(c+0xf8); int n=list_n(l); if(n>8) n=8;
+  int t=-1; for(int k=0;k<n;k++){ u64 im=list_at(l,k); if(!uobj_ok(im)) continue; u64 go=u_gameobject(im); if(!uobj_ok(go) || !u_active(go)) continue;
+    float x0,y0,x1,y1; if(tr_box(u_transform(im),0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; break; } }
+  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("storehouse arrow",a,0);   // "<" / ">": one step
+    int sl= a>0 ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); return 1; }
+  tm_log2("storehouse category",t,RDS32(c+0xe8));
+  for(int g=0;g<8;g++){ int cur=RDS32(c+0xe8); if(cur==t) break; int sl= cur<t ? 43 : 42;
+    ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(RDS32(c+0xe8)==cur) break; }
+  return 1; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
   int troop=str_eq(il_cname(m),"TroopListMenu");
   if(troop && i<0 && troop_header_tap(m,x,y)) return 1;
+  if(i<0 && str_eq(il_cname(m),"MaterialListMenu") && matlist_cat_tap(m,x,y)) return 1;
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }

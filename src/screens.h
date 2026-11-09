@@ -30,8 +30,12 @@ static u64 g_hubcam, o_hubcam_update, g_hubcam_poll;
 static void hk_hubcam_update(u64 self,u64 mi){ g_hubcam=self; g_hubcam_poll=g_poll; ((void(*)(u64,u64))o_hubcam_update)(self,mi); }
 // the hub camera updated within the last few frames (it's the live free-roam camera)
 static u64 hubcam(void){ u64 c=g_hubcam; if(!c || g_poll-g_hubcam_poll>4 || !uobj_ok(c)) return 0; return c; }
+// the "Name ... (A) Talk" label over the interactable in reach (App.HubAccessHelp, +0x18 m_NowAccess; Update 0x216f4c0 records it)
+static u64 g_hubhelp, o_hubhelp_update, g_hubhelp_poll;
+static void hk_hubhelp_update(u64 self,u64 mi){ g_hubhelp=self; g_hubhelp_poll=g_poll; ((void(*)(u64,u64))o_hubhelp_update)(self,mi); }
 static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode);
-  o_hubcam_update=hook_install(M(0x2d7a2b0),(u64)&hk_hubcam_update); }
+  o_hubcam_update=hook_install(M(0x2d7a2b0),(u64)&hk_hubcam_update);
+  o_hubhelp_update=hook_install(M(0x216f4c0),(u64)&hk_hubhelp_update); }
 static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M(0x265baa0))(h,2,0); }
 // A tap moves the cursor to the tapped tile instantly; a tap on the cursor's tile is A (select / confirm).
 // Tiles are 5 world units; the cursor's world position is its tile's centre, so the tile is counted from the cursor.
@@ -119,11 +123,25 @@ static int engage_confirm_tap(u64 p,float x,float y){ u64 go=RD64(p+0x78); if(!u
   u64 b=command_btn(tr_child_named(u_go_transform(go),"Command"),x,y); tm_log2("engage confirm",(s64)b,0);
   press(b ? b : BTN_B); return 1; }
 
+// ---- hub / explore free roam: a tap on the "(A) Talk" / access label over the interactable in reach = A (it is that prompt) ----
+static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_poll>4 || !uobj_ok(h)) return 1;
+  u64 acc=RD64(h+0x18); u64 go=u_gameobject(h); if(!acc || !uobj_ok(go) || !u_active(go)) return 1;
+  // its root RectTransform spans the screen: the label's box is the union of its visible pieces (kh_box_add: children up to
+  // depth 3 under 600 x 120, their texts) without the root's own
+  u64 tr=u_transform(h); if(ui_alpha(tr)<0.05f) return 1; float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(tr,0,&x0,&y0,&x1,&y1);
+  if(x1<=x0 || y1<=y0) return 1;
+  tm_log2("hub access box x",(s64)x0,(s64)x1); tm_log2("hub access box y",(s64)y0,(s64)y1);
+  if(x>=x0-10.f && x<x1+10.f && y>=y0-10.f && y<y1+10.f){ tm_log2("hub access",1,0); press(BTN_A); }
+  return 1; }
+
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
+  // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
+  if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
+     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")){ press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   if((p=proc_find("CombatSequence"))){ press(BTN_PLUS); return 1; }   // Combat.CombatInput.Update: B or + skips the animation
@@ -131,6 +149,7 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("PlayerGenderSelectMenuSequence")) && !proc_sus(p)) return gender_tap(p,x,y);
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }
   if((p=proc_find("MapSequenceHuman")) && !proc_sus(p)) return map_tap(p,x,y);
+  if((p=proc_find("HubSequence")) && !proc_sus(p)) return hub_tap(x,y);
   if((p=proc_find("EventSequence"))){ press(BTN_A); return 1; }
-  if((p=proc_find("MapSequence")) && proc_label(p)==17){ press(BTN_A); return 1; }   // "STAGE CLEAR!" (label Complete) waits for A
+  if((p=proc_find("MapSequence")) && (proc_label(p)==17 || proc_label(p)==18)){ press(BTN_A); return 1; }   // "STAGE CLEAR!" (Complete) / "GAME OVER" (GameOver) wait for A
   return 0; }
