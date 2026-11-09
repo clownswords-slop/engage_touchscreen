@@ -69,6 +69,16 @@ static u64 q_tick(void){
   if(q_phase==2){ if(q_cnt-->0) return 0; q_phase=0; qh=(qh+1)&63; return q_tick(); }
   return 0; }
 static void press(u64 b){ q_push(b,2,3); }
+// ---- right-stick queue (camera): each push holds (x, y) for `hold` frames, then centres the stick for `gap` frames ----
+typedef struct { s32 x, y; int hold, gap; } RStep;
+static RStep rq[16]; static int rqh, rqt, rq_phase, rq_cnt; static s32 g_rs_x, g_rs_y;
+static void rs_push(s32 x,s32 y,int hold,int gap){ int n=(rqt+1)&15; if(n==rqh) return; rq[rqt].x=x; rq[rqt].y=y; rq[rqt].hold=hold; rq[rqt].gap=gap; rqt=n; }
+static int rs_pending(void){ return (rqt-rqh)&15; }
+static void rs_clear(void){ rqh=rqt=0; rq_phase=0; g_rs_x=g_rs_y=0; }
+static void rs_tick(void){ g_rs_x=g_rs_y=0;
+  for(;;){ if(rq_phase==0){ if(rqh==rqt) return; rq_cnt=rq[rqh].hold; rq_phase=1; }
+    if(rq_phase==1){ if(rq_cnt-->0){ g_rs_x=rq[rqh].x; g_rs_y=rq[rqh].y; return; } rq_phase=2; rq_cnt=rq[rqh].gap; }
+    if(rq_phase==2){ if(rq_cnt-->0) return; rq_phase=0; rqh=(rqh+1)&15; } } }
 
 #ifdef TM_DEBUG
 static int tlog=1;

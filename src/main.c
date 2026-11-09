@@ -28,6 +28,7 @@ static inline u32 svcQueryMemory(MemInfo* mi, u32* pi, u64 addr){ register u64 x
 #include "help.h"
 #include "map.h"
 #include "screens.h"
+#include "opts.h"
 #include "touch.h"
 
 // ---- the real hid functions (resolved in the sdk module: our own definitions shadow the GOT) ----
@@ -76,7 +77,7 @@ static void frame_tick(void){
 #endif
   if(GetTouchN){ int n=GetTouchN(tsh,16); if(n>16) n=16;
     for(int i=n-1;i>=0;i--) if(tsh[i].sampling>last_samp){ last_samp=tsh[i].sampling; touch_update(&tsh[i]); } }
-  g_inject=q_tick();
+  g_inject=q_tick(); rs_tick(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
 #ifdef TM_DEBUG
   g_inject|=cur_inject_dbg;
 #endif
@@ -102,7 +103,7 @@ static void hooks_init(void){
 #endif
   o_pad_update=hook_install(M(PAD_ONUPDATE),(u64)&hk_pad_update); g_pad_hooked= o_pad_update!=0;
   Buf b={0}; bstr(&b,"[engagetouch] hook Pad.OnUpdate "); bhex(&b,o_pad_update); bstr(&b," err "); bhex(&b,g_hook_err); bstr(&b," rc "); bhex(&b,g_patch_rc); bflush(&b);
-  menu_init(); kh_init(); help_init(); map_hooks_init(); bir_init(); }
+  menu_init(); kh_init(); help_init(); map_hooks_init(); bir_init(); opts_init(); }
 
 // one read of `n` states for npad `id` (style h): runs the frame logic on the primary npad and ORs the injected buttons in
 static void process(NpadState*s,int n,u32 id,int h,u64 lr){
@@ -116,7 +117,7 @@ static void process(NpadState*s,int n,u32 id,int h,u64 lr){
   if(id!=g_primary) return;
   if(!g_pad_hooked && h!=H_LEFT && h!=H_RIGHT){ static int last_h=-1; if(last_h<0) last_h=h; if(h==last_h) frame_tick(); }   // fallback without the Pad hook
   if(s[0].buttons&0xffffu) g_touch_mode=0;   // real pad input brings the cursor back
-  for(int i=0;i<n;i++) s[i].buttons|=g_inject;
+  for(int i=0;i<n;i++){ s[i].buttons|=g_inject; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } }
 }
 
 #define STATES(H,name) int name(NpadState*s,int n,const u32*id){ resolve(); if(!r_states[H]){ memset(s,0,sizeof(*s)*(n>0?n:0)); return 0; } \
@@ -173,6 +174,8 @@ static void dbg_ext(const char*p){
         for(int k=0;k<d;k++) oc(' '); os(il_cname(q)); oc(' '); os_ilstr(RD64(q+0x20)); os(" st "); oi(RD32(q+0x58)); os(" sus "); oi(RDS32(q+0x5c)); oc(' '); ox(q); oc('\n');
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
+  else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
+  else if(starts(p,"rs")){ p+=2; s32 x=(s32)(s64)parse_num(&p), y=(s32)(s64)parse_num(&p); int n=(int)parse_num(&p); rs_push(x,y,n?n:10,4); os("rs\n"); }
   else if(starts(p,"bir")){ p+=3; u64 off=parse_num(&p); if(!off) off=0x40; int d=(int)parse_num(&p); if(!d) d=6; os("bir "); ox(g_bir); oc('\n');
     if(uobj_ok(g_bir)){ u64 tr=any_transform(RD64(g_bir+off)); g_tree_n=0; if(tr) dbg_tree(tr,0,d); } }
   else if(starts(p,"tree")){ p+=4; u64 o=parse_num(&p); int d=(int)parse_num(&p); if(!d) d=3; u64 tr=any_transform(o); g_tree_n=0; if(!tr){ os("no transform\n"); return; } dbg_tree(tr,0,d); }

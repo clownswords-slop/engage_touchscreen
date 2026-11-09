@@ -25,7 +25,13 @@ static int gender_tap(u64 p,float x,float y){
 // hooked to answer Indirect while touch is in use; a pick already running in Direct is switched with SetOperateMode (0x265baa0).
 static u64 o_def_opmode;
 static u32 hk_def_opmode(u64 self,u64 mi){ u32 r=((u32(*)(u64,u64))o_def_opmode)(self,mi); if(g_touch_mode && r==1) r=2; return r; }
-static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode); }
+// ---- hub / explore free roam camera (App.HubCamera, a MonoBehaviour): Update 0x2d7a2b0 records the live one ----
+static u64 g_hubcam, o_hubcam_update, g_hubcam_poll;
+static void hk_hubcam_update(u64 self,u64 mi){ g_hubcam=self; g_hubcam_poll=g_poll; ((void(*)(u64,u64))o_hubcam_update)(self,mi); }
+// the hub camera updated within the last few frames (it's the live free-roam camera)
+static u64 hubcam(void){ u64 c=g_hubcam; if(!c || g_poll-g_hubcam_poll>4 || !uobj_ok(c)) return 0; return c; }
+static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode);
+  o_hubcam_update=hook_install(M(0x2d7a2b0),(u64)&hk_hubcam_update); }
 static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M(0x265baa0))(h,2,0); }
 // A tap moves the cursor to the tapped tile instantly; a tap on the cursor's tile is A (select / confirm).
 // Tiles are 5 world units; the cursor's world position is its tile's centre, so the tile is counted from the cursor.
