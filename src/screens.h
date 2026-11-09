@@ -141,7 +141,7 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
-     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")){ press(BTN_A); return 1; }
+     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")){ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   if((p=proc_find("CombatSequence"))){ press(BTN_PLUS); return 1; }   // Combat.CombatInput.Update: B or + skips the animation

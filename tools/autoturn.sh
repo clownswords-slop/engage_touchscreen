@@ -23,7 +23,13 @@ settle(){ for i in $(seq 1 90); do sleep 1.5; w=$("$D/where.sh" 20)
     echo "$w" | head -1 | grep -q "Menu \|Dialog " && return 2
     echo "$w" | grep -q "MapSequenceEnemy\|MapSequenceAI" && return 3
     echo "$w" | grep -q "TalkKeyWait\|Tutorial\|EventSequence\|MovieSequence\|CombatSequence" && "$C" "tap 640 300" >/dev/null; done; return 1; }
-LORD=1054296552   # Alear: losing her ends the game
+LORD=1054296552   # Alear: losing her ends the game (attacks only enemies with <= 12 HP)
+HEALER=889217443  # Framme: heals the most injured ally in reach instead of fighting
+heal_menu(){ "$C" "menu" | grep -q "RodMenuItem.*attr 0x1" || return 1; mtap "RodMenuItem"; sleep 2.2
+  r=$("$C" "menu" | grep "^[0-9] RodMenuItem.*attr 0x1" | head -1 | grep -o "box [0-9]*,[0-9]* [0-9]*,[0-9]*") || return 1
+  set -- $(echo "$r" | tr ',' ' '); "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 0.8
+  "$C" "menu" | head -2 | grep -q "RodMenu" && "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 2.2
+  "$D/where.sh" 20 | grep -q TargetSelect || return 1; "$C" "tap 640 527" >/dev/null; sleep 1; log "heal"; settle; return 0; }
 act_menu(){   # command menu is up: Engage first if possible (returns 5), attack if possible, else wait
   if [ "$NOATTACK" != 1 ] && "$C" "menu" | grep -q "EngageStartMenuItem.*attr 0x1" && "$C" "menu" | grep -q "AttackMenuItem"; then
     mtap "EngageStartMenuItem"; sleep 2.5; "$D/where.sh" 20 | grep -q EngageConfirm && { "$C" "tap 642 465" >/dev/null; sleep 2; }
@@ -55,9 +61,20 @@ for round in 1 2 3 4 5 6 7 8 9 10 11 12; do
   [ -n "$mx" ] && [ $((hp*100)) -lt $((mx*lim)) ] && weak=1
   pick $ux $uz || { log "unit $id at $ux,$uz can't act"; continue; }
   # target: nearest enemy, weakened ones count as nearer (distance + hp / 10)
-  set -- $(echo "$E" | while read eid ex ez f ehp; do d=$(dist $ux $uz $ex $ez); echo "$((d*10+ehp)) $ex $ez $d"; done | sort -n | head -1); ex=$2; ez=$3; ed=$4
+  EL="$E"; [ "$id" = "$LORD" ] && EL=$(echo "$E" | awk '$5<=12')
+  if [ -z "$EL" ]; then log "lord holds (no weak enemy)"; NOATTACK=1; tile_go $ux $uz && act_menu; NOATTACK=0; continue; fi
+  set -- $(echo "$EL" | while read eid ex ez f ehp; do d=$(dist $ux $uz $ex $ez); echo "$((d*10+ehp)) $ex $ez $d"; done | sort -n | head -1); ex=$2; ez=$3; ed=$4
   log "unit $id $ux,$uz hp $hp/$mx -> enemy $ex,$ez (dist $ed)"
   ok=0; tx=$ux; tz=$uz
+  if [ "$id" = "$HEALER" ]; then   # most injured ally (hp / max), tiles next to it
+    set -- $(echo "$P" | while read aid ax az af ahp; do [ "$aid" = "$id" ] && continue; am=$(grep "^$aid " "$MAXF" | awk '{print $2}'); [ -n "$am" ] || continue
+      [ $((ahp*100)) -lt $((am*75)) ] && echo "$((ahp*100/am)) $ax $az"; done | sort -n | head -1)
+    if [ -n "$1" ]; then hx=$2; hz=$3; log "healer -> ally $hx,$hz ($1%)"
+      for c in "$((hx-1)) $hz" "$((hx+1)) $hz" "$hx $((hz-1))" "$hx $((hz+1))"; do set -- $c; occupied $1 $2 && ! { [ $1 = $ux ] && [ $2 = $uz ]; } && continue
+        tile_go $1 $2 && { heal_menu || { mtap "FixedMenuItem"; sleep 1; settle; }; continue 2; }; [ "$(hlabel)" = 4 ] || pick $ux $uz || break; done
+    fi
+    NOATTACK=1; tile_go $ux $uz && { act_menu; NOATTACK=0; continue; }; NOATTACK=0
+  fi
   if [ $weak = 1 ]; then log "weak: holds"; tile_go $ux $uz && { mtap "FixedMenuItem"; sleep 1; settle; continue; }; fi
   for c in $(for t in "$((ex-1)) $ez" "$((ex+1)) $ez" "$ex $((ez-1))" "$ex $((ez+1))"; do set -- $t; [ $1 -ge 0 ] && [ $2 -ge 0 ] || continue
       { [ $1 = $ux ] && [ $2 = $uz ]; } || ! occupied $1 $2 || continue; echo "$(dist $ux $uz $1 $2) $1,$2"; done | sort -n | awk '{print $2}'); do
