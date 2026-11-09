@@ -173,6 +173,8 @@ static void dbg_ext(const char*p){
         for(int k=0;k<d;k++) oc(' '); os(il_cname(q)); oc(' '); os_ilstr(RD64(q+0x20)); os(" st "); oi(RD32(q+0x58)); os(" sus "); oi(RDS32(q+0x5c)); oc(' '); ox(q); oc('\n');
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
+  else if(starts(p,"bir")){ p+=3; u64 off=parse_num(&p); if(!off) off=0x40; int d=(int)parse_num(&p); if(!d) d=6; os("bir "); ox(g_bir); oc('\n');
+    if(uobj_ok(g_bir)){ u64 tr=any_transform(RD64(g_bir+off)); g_tree_n=0; if(tr) dbg_tree(tr,0,d); } }
   else if(starts(p,"tree")){ p+=4; u64 o=parse_num(&p); int d=(int)parse_num(&p); if(!d) d=3; u64 tr=any_transform(o); g_tree_n=0; if(!tr){ os("no transform\n"); return; } dbg_tree(tr,0,d); }
   else if(starts(p,"pick")){ p+=4; float x=(float)(s64)parse_num(&p), y=(float)(s64)parse_num(&p); dbg_pick(x,y); }
   else if(starts(p,"mset")){ p+=4; int x=(int)parse_num(&p), z=(int)parse_num(&p); cursor_set(x,z,0.f); os("ok\n"); }

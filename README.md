@@ -24,6 +24,9 @@ arrive as touches.
 - Battle forecast: tap the "(A) Attack" button (or the target) to attack. Engage confirmation: tap the "(A) Engage" button.
 - Combat animations: tap to skip (when the game allows skipping). "STAGE CLEAR!": tap to continue.
 - Page arrows beside lists (Guide, Units): tap them to turn the page.
+- Units list: tap a column header to sort by it, tap it again to flip the order; tap a unit to leave sorting.
+- Battle forecast: tap the "< L weapon R >" arrows to change the weapon. With two enemies in range, tap the other one to switch
+  targets (tap it again to attack).
 
 ## Not done yet
 See `HANDOFF.md`.

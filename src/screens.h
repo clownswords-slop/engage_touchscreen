@@ -54,7 +54,12 @@ static int target_tap(u64 ts,int tx,int tz){ u64 mt=map_target(); if(!mt || !mem
   int i=((int(*)(u64,int,int,u64))M(0x1e422e0))(ds,tx,tz,0); tm_log2("target idx",i,0); if(i<0) return 1;   // not a target: swallow
   u64 d=((u64(*)(u64,int,u64))M(0x1e42150))(ds,i,0); if(!d) return 1;
   if(d==RD64(ts+0x78)){ press(BTN_A); return 1; }
-  ((int(*)(u64,u64,int,u64))M(0x1f40310))(ts,d,RDS32(ts+0x80),0); return 1; }
+  // TrySetTarget; the Tick only redraws when the index changes inside it (d-pad), so run its refresh path here:
+  // SetMapCursorPositon, UpdateInfo, UpdateActor, UpdateMapPanelActive, SetHpForecast (Tick 0x1f38cf0)
+  if(((int(*)(u64,u64,int,u64))M(0x1f40310))(ts,d,RDS32(ts+0x80),0) & 1){
+    static const u32 k_ref[]={0x1f374c0,0x1f3a1c0,0x1f40860,0x1f37780,0x1f37600};
+    for(u32 j=0;j<5;j++) ((void(*)(u64,u64))M(k_ref[j]))(ts,0); }
+  return 1; }
 // tapped tile, 0 if the tap misses the map plane
 static int map_tile_at(float x,float y,int*tx,int*tz){ V3 w; if(!map_unproject(x,y,&w)) return 0; V3 c=cursor_pos();
   *tx=cursor_x()+ifloor((w.x-c.x)/TILE+g_tile_off); *tz=cursor_z()+ifloor((w.z-c.z)/TILE+g_tile_off); return 1; }
@@ -75,9 +80,20 @@ static u64 g_bir, o_bir_setup;
 static u64 hk_bir_setup(u64 a0,u64 a1,u64 a2,u64 a3,u64 a4,u64 a5){ g_bir=a0; return ((u64(*)(u64,u64,u64,u64,u64,u64))o_bir_setup)(a0,a1,a2,a3,a4,a5); }
 static void bir_init(void){ o_bir_setup=hook_install(M(0x1f0b100),(u64)&hk_bir_setup);
   Buf b={0}; bstr(&b,"[engagetouch] hook battleinfo "); bhex(&b,o_bir_setup); bstr(&b," err "); bhex(&b,g_hook_err); bflush(&b); }
+// the "< L weapon R >" arrows on the attacker's panel (m_InfoLeft, only with 2+ weapons): BattleInfoL/FrmNameItem/Item has
+// KeyHelpY (ArrowL + the L icon, whose object is named Y) and KeyHelpX (the R icon "X" + ArrowR); L / R cycle the weapon.
+// -1 / 1 for a tap on one of them (its box joined with its children's), 0 if none
+static int weapon_arrow_find(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(n>40) n=40;
+  for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
+    u64 nm=u_name(c); int s= il_str_eq(nm,"KeyHelpY") ? -1 : il_str_eq(nm,"KeyHelpX") ? 1 : 0;
+    if(s){ float x0,y0,x1,y1; if(kh_box(c,&x0,&y0,&x1,&y1) && ui_alpha(c)>=0.05f && x>=x0-8.f && x<x1+8.f && y>=y0-10.f && y<y1+10.f) return s; continue; }
+    if(d<5){ int r=weapon_arrow_find(c,d+1,x,y); if(r) return r; } }
+  return 0; }
 static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq(il_cname(r),"MapBattleInfoRoot")) return 0;
   u64 go=u_gameobject(r); if(!uobj_ok(go) || !u_active(go)) return 0;
   if(go_hit(RD64(r+0x20),x,y,8.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
+  { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
+      if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
   if(go_hit(RD64(r+0x28),x,y,8.f)){ tm_log2("forecast subcommand",0,0); return 1; }
   return 0; }
 

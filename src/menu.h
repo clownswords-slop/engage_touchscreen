@@ -65,8 +65,31 @@ static int menu_page_arrow(u64 m,float x,float y){
   u64 mc=RD64(m+0x70); if(!uobj_ok(mc)) return 0; u64 tr=u_transform(mc); if(!uobj_ok(tr)) return 0;
   for(int k=0;k<2;k++){ u64 p=u_parent(tr); if(!uobj_ok(p)) break; tr=p; }
   return page_arrow_find(tr,0,x,y); }
+// Units list (TroopListMenu) column headers = sort. No prompt: d-pad Up from the first row enters sort mode (+0xc4
+// m_SelectSort), Left / Right (IncSort 0x22a5cf0 / DecSort 0x22a5750) step the column, A flips the order, Down leaves.
+// The static m_sortMenu (TroopListMenu statics +0x20, TroopListSortMenu): +0x20 m_sortTitle (List<SortTitle>: +0x10 m_root
+// GameObject), +0x50 m_selectIndex. A tap on a header: enter sort mode, step to that column; on the current one: A.
+#define TL_MOVEUP 44
+#define TL_MOVEDOWN 45
+static u64 troop_sortmenu(u64 m){ u64 k=RD64(m); if(!k || !mem_ok(k)) return 0; u64 st=RD64(k+0xb8); if(!st || !mem_ok(st)) return 0;
+  u64 s=RD64(st+0x20); return uobj_ok(s) ? s : 0; }
+static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(!s) return 0;
+  u64 l=RD64(s+0x20); int n=list_n(l), t=-1; if(n>24) n=24;
+  for(int k=0;k<n;k++){ u64 st=list_at(l,k); if(!st || !mem_ok(st)) continue; if(go_hit(RD64(st+0x10),x,y,4.f)){ t=k; break; } }
+  if(t<0) return 0;
+  int was=RD8(m+0xc4)!=0, cur=RDS32(s+0x50); tm_log2("troop sort",t,cur);
+  if(was && t==cur){ press(BTN_A); return 1; }
+  if(!was){ if(RDS32(m+0xa0)!=0) menu_select(m,0);
+    ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEUP))(m,1,il_vmi(m,TL_MOVEUP)); if(!RD8(m+0xc4)) return 1; }
+  for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
+    ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
+  return 1; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
+  int troop=str_eq(il_cname(m),"TroopListMenu");
+  if(troop && i<0 && troop_header_tap(m,x,y)) return 1;
+  if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
+    if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }
   // a tap well away from the menu (outside its visible items + MENU_OUT px) is B: many menus show no Back prompt
   if(i<0){ float bx0,by0,bx1,by1; if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && (x<bx0-MENU_OUT || x>bx1+MENU_OUT || y<by0-MENU_OUT || y>by1+MENU_OUT)){ tm_log2("menu outside: B",0,0); press(BTN_B); return 1; } return 0; }

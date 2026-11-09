@@ -1,10 +1,13 @@
 #!/bin/bash
 # skiptest.sh : tap through talk / events like advance.sh; during a combat, read CombatSkip.state
-# (CombatWorld.get_Instance 0x29255d0 -> get_Skip 0x2935350 -> +0x18: 0 Prohibited, 1 Waiting, 2 FadeOut ... 7 End)
+# (CombatWorld.get_Instance 0x29255d0 -> m_Skip +0x78 -> +0x18: 0 Prohibited, 1 Waiting, 2 FadeOut ... 7 End)
 # and tap once while it is Waiting, then report whether the state moved on (= the tap skipped the animation).
 D="$(dirname "$0")"; C="$D/cmd.sh"
 st(){ w=$("$C" "call 0x29255d0 0" | grep -o "ret 0x[0-9a-f]*" | cut -d' ' -f2); [ -z "$w" ] || [ "$w" = "0x0" ] && { echo none; return; }
-  s=$("$C" "call 0x2935350 $w 0" | grep -o "ret 0x[0-9a-f]*" | cut -d' ' -f2); [ -z "$s" ] || [ "$s" = "0x0" ] && { echo none; return; }
+  # read m_Skip (+0x78) directly: get_Skip 0x2935350 would GetComponent on a destroyed world and abort the game
+  [ "$("$D/rd64.sh" $(printf '0x%x' $((w+0x10))))" = 0x0 ] && { echo none; return; }
+  s=$("$D/rd64.sh" $(printf '0x%x' $((w+0x78)))); [ "$s" = 0x0 ] && { echo none; return; }
+  [ "$("$D/rd64.sh" $(printf '0x%x' $((s+0x10))))" = 0x0 ] && { echo none; return; }
   "$C" "dump $(printf '0x%x' $((s+0x18))) 4" | sed -n 2p | awk '{print $2}'; }
 for i in $(seq 1 ${1:-80}); do sleep 1; w=$("$D/where.sh" 14)
   if echo "$w" | grep -q "MapSequenceHuman App.MapSequenceHuman st 6 sus 0"; then echo "player phase"; exit 0; fi
