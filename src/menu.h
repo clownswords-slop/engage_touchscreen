@@ -159,6 +159,14 @@ static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
     u64 L=RD64(sq+0x80), R=RD64(sq+0x88); u64 o= m==L ? R : m==R ? L : 0; if(!o || !mem_ok(o)) return 0; int i=menu_hit(o,x,y); if(i<0) return 0;
     int sl= o==R ? 43 : 42; tm_log2("trade side",sl,i); ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl));
     g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+  // Pool (Refresh): the unit slot list (RefreshUnitSetMenu, +0xe0 m_DecideMenu) and the "Command" menu under it
+  // (RefreshUnitSetDecideMenu; the d-pad moves the focus between them): a tap on the other one moves the focus there at once
+  // with the slot list's own RefreshUnitSetMenu.FocusDecideMenu 0x22c52c0 / FocusThisMenu 0x22c5200
+  if(str_eq(cn,"RefreshUnitSetMenu") || str_eq(cn,"RefreshUnitSetDecideMenu")){ int to_dec=str_eq(cn,"RefreshUnitSetMenu");
+    u64 sm= to_dec ? m : proc_find("RefreshUnitSetMenu"); if(!sm || !mem_ok(sm)) return 0; u64 o= to_dec ? RD64(sm+0xe0) : sm;
+    if(!o || !mem_ok(o)) return 0; int i=menu_hit(o,x,y); if(i<0) return 0;
+    tm_log2("refresh focus",to_dec,i); ((void(*)(u64,u64))M(to_dec ? 0x22c52c0 : 0x22c5200))(sm,0);
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
   for(u32 j=0;j<sizeof(k_menu_pairs)/sizeof(k_menu_pairs[0]);j++){ if(!str_eq(cn,k_menu_pairs[j].from)) continue;
     u64 o=proc_find(k_menu_pairs[j].to); if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y); if(i<0) continue;
     tm_log2("menu pair switch",(s64)j,i); int sl=k_menu_pairs[j].slot;
