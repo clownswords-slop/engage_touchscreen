@@ -134,14 +134,21 @@ static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_
   if(x>=x0-10.f && x<x1+10.f && y>=y0-10.f && y<y1+10.f){ tm_log2("hub access",1,0); press(BTN_A); }
   return 1; }
 
+// read-only pages without prompts that B closes ("Resources Found in Firene" from Donations -> X Details): tap = B
+static const char* const k_view_pages[]={ "InvestmentNationDataSequence" };
+static int view_page_tap(void){ for(u32 j=0;j<sizeof(k_view_pages)/sizeof(k_view_pages[0]);j++){ u64 p=proc_find(k_view_pages[j]);
+    if(p && !proc_sus(p)){ tm_log2("view page: B",(s64)j,0); press(BTN_B); return 1; } } return 0; }
+
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
+  if(view_page_tap()) return 1;
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
-     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")){ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
+     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")
+     || proc_find("GameMessage") || proc_find("DemoTelop")){   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   if((p=proc_find("CombatSequence"))){ press(BTN_PLUS); return 1; }   // Combat.CombatInput.Update: B or + skips the animation

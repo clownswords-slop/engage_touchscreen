@@ -15,6 +15,6 @@ for i in $(seq 1 400); do sleep 1.5; w=$("$D/where.sh" 25)
   [ "$lb" = 18 ] && { echo "GAME OVER"; exit 3; }
   [ "$lb" = 17 ] && { "$C" "tap 640 400" >/dev/null; continue; }
   if echo "$w" | grep -q "MapSequenceHuman App.MapSequenceHuman st 6 sus 0" && ! echo "$m" | grep -q "Menu "; then auto; continue; fi
-  echo "$w" | grep -q "TalkKeyWait\|Tutorial\|EventSequence\|MovieSequence\|CombatSequence\|ProcBond\|GodGrow" && "$C" "tap 640 300" >/dev/null
+  echo "$w" | grep -qE "TalkKeyWait|Tutorial|EventSequence|MovieSequence|CombatSequence|ProcBond|GodGrow|GameMessage" && "$C" "tap 640 300" >/dev/null
   [ $((i % 20)) = 0 ] && "$D/weaken.sh" >/dev/null
 done; echo timeout

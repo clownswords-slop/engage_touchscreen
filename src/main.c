@@ -62,12 +62,29 @@ static int dg_n, dg_i, dg_hold; static float dg_x0, dg_y0, dg_x1, dg_y1;
 
 #ifdef TM_DEBUG
 static s32 dbg_ls_x, dbg_ls_y; static int dbg_ls_n;   // debug: left stick override for n frames ("ls x y n")
+// debug "walkto x z [flip]": steer Alear (hub) to (x, z) with the left stick relative to the hub camera's yaw; "access" lists the
+// interactables (App.HubAccess: AID +0x18, transform position), Alear = HubCamera +0x70 PlayerController.GetTransform 0x23d80d0
+static float wk_x, wk_z; static int wk_n, wk_flip;
+static int hub_player_pos(V3*p){ u64 c=hubcam(); if(!c) return 0; u64 pc=RD64(c+0x70); if(!pc || !mem_ok(pc)) return 0;
+  u64 tr=((u64(*)(u64,u64))M(0x23d80d0))(pc,0); if(!uobj_ok(tr)) return 0; *p=((V3(*)(u64,u64))M(0x378f890))(tr,0); return 1; }
+// sine / cosine without libm (the module imports nothing it can't resolve): range-reduced Taylor, good to ~1e-4
+static float tm_sin(float a){ const float PI=3.14159265f; while(a>PI) a-=2.f*PI; while(a<-PI) a+=2.f*PI;
+  if(a>PI*0.5f) a=PI-a; else if(a<-PI*0.5f) a=-PI-a; float a2=a*a; return a*(1.f-a2/6.f*(1.f-a2/20.f*(1.f-a2/42.f*(1.f-a2/72.f)))); }
+static float tm_cos(float a){ return tm_sin(a+1.57079633f); }
+static float tm_sqrt(float x){ float r; __asm__("fsqrt %s0, %s1" : "=w"(r) : "w"(x)); return r; }
+static void walk_frame(void){ if(wk_n<=0) return; wk_n--; V3 p; if(!hub_player_pos(&p)){ wk_n=0; return; }
+  float dx=wk_x-p.x, dz=wk_z-p.z, d2=dx*dx+dz*dz; if(d2<0.8f*0.8f){ wk_n=0; dbg_ls_n=0; return; }
+  float a=((float(*)(u64,u64))M(0x2d792d0))(hubcam(),0)*0.0174533f; float sn=tm_sin(a), cs=tm_cos(a);
+  float sx=dx*cs-dz*sn, sy=dx*sn+dz*cs; if(wk_flip&1) sx=-sx; if(wk_flip&2) sy=-sy;
+  float l=tm_sqrt(sx*sx+sy*sy); if(l<1e-4f) return; float sp= d2<2.f*2.f ? 0.5f : 1.f;
+  dbg_ls_x=(s32)(sx/l*32000.f*sp); dbg_ls_y=(s32)(sy/l*32000.f*sp); dbg_ls_n=2; }
 #endif
 static void frame_tick(void){
   g_poll++; g_scr_w=0; menu_frame();
 #ifdef TM_DEBUG
   if((g_poll%10)==0) poll_cmd();
   if(dbg_ls_n>0) dbg_ls_n--;
+  walk_frame();
   if(dbg_tap){ dbg_tap=0; on_tap((float)dbg_tap_x,(float)dbg_tap_y); }
   if(inj_frames>0){ inj_frames--; cur_inject_dbg=inj_buttons; } else cur_inject_dbg=0;
   if(mash_n>0){ mash_n--; if((mash_i++%mash_period)<2) cur_inject_dbg|=mash_mask; }
@@ -182,6 +199,12 @@ static void dbg_ext(const char*p){
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
   else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
+  else if(starts(p,"walkto")){ p+=6; wk_x=(float)(s64)parse_num(&p)/100.f; wk_z=(float)(s64)parse_num(&p)/100.f; wk_flip=(int)parse_num(&p); wk_n=900; os("walk\n"); }
+  else if(starts(p,"access")){ V3 me={0,0,0}; int hp=hub_player_pos(&me); os("me "); of(me.x); oc(' '); of(me.z); os(hp?"\n":" (no player)\n");
+    u64 t=il_type("App.HubAccess, Assembly-CSharp"); u64 arr= t ? ((u64(*)(u64,u64))M(0x32ef7d0))(t,0) : 0; int n= arr&&mem_ok(arr) ? (int)RD64(arr+0x18) : 0;
+    for(int k=0;k<n && k<80;k++){ u64 a=RD64(arr+0x20+8ul*k); if(!uobj_ok(a)) continue; u64 go=u_gameobject(a); if(!uobj_ok(go) || !u_active(go)) continue;
+      V3 q=((V3(*)(u64,u64))M(0x378f890))(u_transform(a),0); oi(k); oc(' '); os_ilstr(RD64(a+0x18)); oc(' '); of(q.x); oc(' '); of(q.z);
+      float dx=q.x-me.x, dz=q.z-me.z; os(" d "); of(tm_sqrt(dx*dx+dz*dz)); oc('\n'); } }
   else if(starts(p,"ls")){ p+=2; dbg_ls_x=(s32)(s64)parse_num(&p); dbg_ls_y=(s32)(s64)parse_num(&p); dbg_ls_n=(int)parse_num(&p); os("ls\n"); }
   else if(starts(p,"rs")){ p+=2; s32 x=(s32)(s64)parse_num(&p), y=(s32)(s64)parse_num(&p); int n=(int)parse_num(&p); rs_push(x,y,n?n:10,4); os("rs\n"); }
   else if(starts(p,"bir")){ p+=3; u64 off=parse_num(&p); if(!off) off=0x40; int d=(int)parse_num(&p); if(!d) d=6; os("bir "); ox(g_bir); oc('\n');

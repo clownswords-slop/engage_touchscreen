@@ -84,23 +84,82 @@ static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
   return 1; }
-// Storehouse (App.MaterialListMenu): category icons "< ALL gift food material other >" (content = m_menuContent +0x70,
-// MaterialListMenuContent: +0xe8 Category, +0xf8 m_CategoryIconList List<Image>, icon i = category i). A tap on an icon calls
-// the menu's own KeyRight / KeyLeft (vtable 43 / 42) until that category is current (instant, no d-pad steps).
-static int matlist_cat_tap(u64 m,float x,float y){ u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 l=RD64(c+0xf8); int n=list_n(l); if(n>8) n=8;
-  int t=-1; for(int k=0;k<n;k++){ u64 im=list_at(l,k); if(!uobj_ok(im)) continue; u64 go=u_gameobject(im); if(!uobj_ok(go) || !u_active(go)) continue;
-    float x0,y0,x1,y1; if(tr_box(u_transform(im),0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; break; } }
-  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("storehouse arrow",a,0);   // "<" / ">": one step
+// Index tabs: a row of category icons where icon i = category i, the current index read from the menu / its content; a tap on an
+// icon calls the menu's own KeyRight / KeyLeft (vtable 43 / 42) until the index matches (instant, no d-pad steps); "<" ">"
+// arrows under the content step once. Storehouse (MaterialListMenu: content +0xf8 List<Image> m_CategoryIconList, +0xe8
+// Category), Achievements (AchievementMenu: content +0x118 List<GameObject> m_categoryIcon, GetSelectCategory 0x27cdf30).
+static int tabs_cur_matlist(u64 m){ u64 c=RD64(m+0x70); return uobj_ok(c) ? RDS32(c+0xe8) : -1; }
+static int tabs_cur_achieve(u64 m){ return ((int(*)(u64,u64))M(0x27cdf30))(m,0); }
+typedef struct { const char*cls; u32 list_off; int (*cur)(u64 m); } IndexTabs;
+static const IndexTabs k_index_tabs[]={ {"MaterialListMenu",0xf8,tabs_cur_matlist}, {"AchievementMenu",0x118,tabs_cur_achieve} };
+static int index_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); const IndexTabs*it=0;
+  for(u32 j=0;j<sizeof(k_index_tabs)/sizeof(k_index_tabs[0]);j++) if(str_eq(cn,k_index_tabs[j].cls)) it=&k_index_tabs[j];
+  if(!it) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 l=RD64(c+it->list_off); int n=list_n(l); if(n>12) n=12;
+  int t=-1; for(int k=0;k<n;k++){ u64 o=list_at(l,k); u64 tr=any_transform(o); if(!tr) continue; u64 go=u_gameobject(tr); if(!uobj_ok(go) || !u_active(go)) continue;
+    float x0,y0,x1,y1; if(tr_box(tr,0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; break; } }
+  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("tabs arrow",a,0);
     int sl= a>0 ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); return 1; }
-  tm_log2("storehouse category",t,RDS32(c+0xe8));
-  for(int g=0;g<8;g++){ int cur=RDS32(c+0xe8); if(cur==t) break; int sl= cur<t ? 43 : 42;
-    ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(RDS32(c+0xe8)==cur) break; }
+  tm_log2("tabs icon",t,it->cur(m));
+  for(int g=0;g<12;g++){ int cur=it->cur(m); if(cur==t || cur<0) break; int sl= cur<t ? 43 : 42;
+    ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(it->cur(m)==cur) break; }
   return 1; }
+// Kind tabs (shops / smithy / accessories / relay messages): the menu keeps the current kind, its content an array of KindIcon
+// { Image m_Image +0x10, int m_Kind +0x18 }. A tap on an icon calls the menu's KeyRight / KeyLeft (vtable 43 / 42) until the
+// menu's kind is the icon's (direction from the icons' order: kinds aren't numbered in display order); "<" ">" arrows under the
+// content step once.
+// list=1: the icons are a List<struct { int kind; Image bg; }> (16-byte elements in the list's array: kind +0, Image +8)
+typedef struct { const char*cls; u32 kind_off, icons_off; int list; } KindTabs;
+static const KindTabs k_kind_tabs[]={ {"InventoryPoolItemMenu",0xd8,0x108,1},
+  {"WeaponShopBuyMenu",0xd0,0xe8}, {"ShopSellMenu",0xc4,0xe8}, {"AccessoryShopBuyMenu",0xd0,0xf0}, {"AccessoryShopChangeMenu",0xc4,0xe8},
+  {"RefineShopRefineBaseMenu",0xc4,0xf0}, {"RelayMessageMenu",0xc4,0xe8} };
+static int kind_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); const KindTabs*kt=0;
+  for(u32 j=0;j<sizeof(k_kind_tabs)/sizeof(k_kind_tabs[0]);j++) if(str_eq(cn,k_kind_tabs[j].cls)) kt=&k_kind_tabs[j];
+  if(!kt) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 arr=RD64(c+kt->icons_off); if(!arr || !mem_ok(arr)) return 0;
+  int n; if(kt->list){ n=list_n(arr); arr=RD64(arr+0x10); if(!arr || !mem_ok(arr)) return 0; } else n=(int)RD64(arr+0x18);
+  if(n<0 || n>16) return 0; int t=-1, tk=0;
+  #define KT_KIND(k) (kt->list ? RDS32(arr+0x20+16ul*(k)) : RDS32(RD64(arr+0x20+8ul*(k))+0x18))
+  #define KT_IMG(k) (kt->list ? RD64(arr+0x20+16ul*(k)+8) : RD64(RD64(arr+0x20+8ul*(k))+0x10))
+  for(int k=0;k<n;k++){ if(!kt->list){ u64 ki=RD64(arr+0x20+8ul*k); if(!ki || !mem_ok(ki)) continue; } u64 im=KT_IMG(k); if(!uobj_ok(im)) continue;
+    u64 go=u_gameobject(im); if(!uobj_ok(go) || !u_active(go)) continue; float x0,y0,x1,y1;
+    if(tr_box(u_transform(im),0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; tk=KT_KIND(k); break; } }
+  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("kind arrow",a,0);
+    int sl= a>0 ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); return 1; }
+  tm_log2("kind tab",t,tk);
+  for(int g=0;g<16;g++){ int cur=RDS32(m+kt->kind_off); if(cur==tk) break; int ci=-1;
+    for(int k=0;k<n;k++){ if(KT_KIND(k)==cur){ ci=k; break; } }
+    int sl= ci<t ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(RDS32(m+kt->kind_off)==cur) break; }
+  #undef KT_KIND
+  #undef KT_IMG
+  return 1; }
+
+static u64 proc_find(const char*n);   // screens.h
+// Two-list screens: the other list is a menu proc of its own that isn't focused (Manage Items: the unit's items | the convoy).
+// A tap on one of its rows presses the screen's own Change Menu button, then selects that row as soon as the list has focus.
+typedef struct { const char*from, *to; u64 btn; } MenuPair;
+static const MenuPair k_menu_pairs[]={ {"InventoryUnitItemMenu","InventoryPoolItemMenu",BTN_ZR}, {"InventoryPoolItemMenu","InventoryUnitItemMenu",BTN_ZL} };
+static u64 g_pend_menu; static int g_pend_idx, g_pend_ttl;
+static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
+  // Trade (App.SortieSequenceTrade: +0x80 m_menuL, +0x88 m_menuR, both SortieTradeItemMenu): the focused side's own KeyRight /
+  // KeyLeft (vtable 43 / 42) moves to the other side, as the d-pad does
+  if(str_eq(cn,"SortieTradeItemMenu")){ u64 sq=proc_find("SortieSequenceTrade"); if(!sq || !mem_ok(sq)) return 0;
+    u64 L=RD64(sq+0x80), R=RD64(sq+0x88); u64 o= m==L ? R : m==R ? L : 0; if(!o || !mem_ok(o)) return 0; int i=menu_hit(o,x,y); if(i<0) return 0;
+    int sl= o==R ? 43 : 42; tm_log2("trade side",sl,i); ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl));
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+  for(u32 j=0;j<sizeof(k_menu_pairs)/sizeof(k_menu_pairs[0]);j++){ if(!str_eq(cn,k_menu_pairs[j].from)) continue;
+    u64 o=proc_find(k_menu_pairs[j].to); if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y); if(i<0) continue;
+    tm_log2("menu pair switch",(s64)j,i); press(k_menu_pairs[j].btn); g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+  return 0; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
+  // message-only dialogs ("You've received a special gift!" ItemListYesNoDialog, ...): every row is an invisible DummyMenuItem
+  // and the dialog waits for A: a tap anywhere is A
+  if(i<0){ int n=menu_items(m), d=0; for(int k=0;k<n && k<16;k++){ u64 it=menu_item(m,k); if(it && str_eq(il_cname(it),"DummyMenuItem")) d++; }
+    if(n>0 && d==n){ tm_log2("message dialog: A",n,0); press(BTN_A); return 1; } }
   int troop=str_eq(il_cname(m),"TroopListMenu");
   if(troop && i<0 && troop_header_tap(m,x,y)) return 1;
-  if(i<0 && str_eq(il_cname(m),"MaterialListMenu") && matlist_cat_tap(m,x,y)) return 1;
+  if(i<0 && index_tabs_tap(m,x,y)) return 1;
+  if(i<0 && kind_tabs_tap(m,x,y)) return 1;
+  if(i<0 && menu_pair_tap(m,x,y)) return 1;
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }
@@ -113,7 +172,8 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
 
 static void menu_init(void){ o_tickinput=hook_install(M(BM_TICKINPUT),(u64)&hk_tickinput);
   Buf b={0}; bstr(&b,"[engagetouch] hook TickInput "); bhex(&b,o_tickinput); bstr(&b," err "); bhex(&b,g_hook_err); bstr(&b," rc "); bhex(&b,g_patch_rc); bflush(&b); }
-static void menu_frame(void){ g_menu=g_menu_tick; g_menu_tick=0; }
+static void menu_frame(void){ g_menu=g_menu_tick; g_menu_tick=0;
+  if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_idx!=RDS32(g_menu+0xa0)) menu_select(g_menu,g_pend_idx); g_pend_menu=0; } else if(--g_pend_ttl<=0) g_pend_menu=0; } }
 
 #ifdef TM_DEBUG
 static void dbg_ocls(const char*l,u64 o){ os(l); ox(o); if(o&&mem_ok(o)){ oc(' '); os(il_cname(o)); os(uobj_ok(o)?" live":" dead"); } oc('\n'); }
