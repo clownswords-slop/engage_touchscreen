@@ -43,7 +43,10 @@ static int menu_bounds(u64 m,float*X0,float*Y0,float*X1,float*Y1){ u64 cam=menu_
   for(int i=0;i<n;i++){ float x0,y0,x1,y1; if(!item_box(menu_item(m,i),cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
     if(!k++){ *X0=x0; *Y0=y0; *X1=x1; *Y1=y1; } else { if(x0<*X0) *X0=x0; if(y0<*Y0) *Y0=y0; if(x1>*X1) *X1=x1; if(y1>*Y1) *Y1=y1; } }
   return k>0; }
-static void menu_select(u64 m,int i){ ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,i,il_vmi(m,BM_SETSEL)); ((void(*)(u64,u64))il_vfn(m,BM_CURSORSE))(m,il_vmi(m,BM_CURSORSE)); }
+static void menu_select(u64 m,int i){ ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,i,il_vmi(m,BM_SETSEL)); ((void(*)(u64,u64))il_vfn(m,BM_CURSORSE))(m,il_vmi(m,BM_CURSORSE));
+  // Time Crystal rewind list (RewindMenu): its KeyUp / KeyDown set the select index and +0xa8 together; the map preview follows
+  // +0xa8 (m_scrollNow +0xd0 chases it with the game's own rewind animation, UpdateSelectAndScroll 0x2019b60)
+  if(str_eq(il_cname(m),"RewindMenu")) WR32(m+0xa8,(u32)i); }
 // tap on a menu: select the item; a tap on the item that is already selected confirms it (A). 1 = handled
 // page arrows a menu shows beside its items (not part of any item): tap = d-pad Left / Right, like the arrows say.
 // Guide (TutorialListSelectMenu): +0xe0 m_Root (TutorialListRoot): +0x70 m_RightArrow, +0x78 m_LeftArrow (GameObjects)

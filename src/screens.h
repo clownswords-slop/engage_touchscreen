@@ -232,11 +232,32 @@ static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c ||
   ((void(*)(u64,int,u64))M(0x1e53440))(c,best,0); ((void(*)(u64,u64))M(0x2032070))(p,0); WR32(p+0x80,0x1000);
   tm_log2("colour cell",best,0); return 1; }
 
+// ---- Profile Card -> Stamps (ProfileCardStampMenu, a ProcInst): +0x70 m_StampRoot (ProfileCardStampRoot: +0x30
+// m_StampRectTransform = the stamp cursor), +0x78 m_CardRoot, +0xc8 m_EditMode. The stick / d-pad move the cursor (DirCall:
+// ProfileCardStampRoot.MoveStamp 0x2bf8bc0 (movement in screen px, range = ProfileCardRoot.GetRect 0x2322c90, isFrame =
+// m_EditMode < 2), then UpdateStampCursor 0x2bf4720); A picks up / puts a stamp under it.
+// A tap on the card moves the cursor straight to the point; on the cursor = A; off the card = B (no Back prompt).
+static int stamp_tap(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78); if(!uobj_ok(sr) || !uobj_ok(cr)) return 1;
+  float cx0,cy0,cx1,cy1; int on_card= tr_box(u_transform(cr),0,&cx0,&cy0,&cx1,&cy1) && x>=cx0 && x<cx1 && y>=cy0 && y<cy1;
+  if(!on_card){ tm_log2("stamps outside: B",0,0); press(BTN_B); return 1; }
+  u64 st=RD64(sr+0x30); float x0,y0,x1,y1; if(!uobj_ok(st) || !tr_box(st,0,&x0,&y0,&x1,&y1)) return 1;
+  float sx=(x0+x1)*0.5f, sy=(y0+y1)*0.5f, dx=x-sx, dy=y-sy;
+  if(dx*dx+dy*dy<28.f*28.f){ tm_log2("stamp: A",0,0); press(BTN_A); return 1; }
+  Rect4 r=((Rect4(*)(u64,u64))M(0x2322c90))(cr,0); float k=(float)((int(*)(u64))M(0x2f8b920))(0)/1280.f;   // Screen.get_width
+  ((void(*)(u64,float,float,float,float,float,float,int,u64))M(0x2bf8bc0))(sr,dx*k,-dy*k,r.x,r.y,r.w,r.h,RDS32(p+0xc8)<2,0);
+  ((void(*)(u64,u64))M(0x2bf4720))(p,0); tm_log2("stamp cursor",(s64)dx,(s64)dy); return 1; }
+
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
   if(view_page_tap()) return 1;
   if((p=ring_clean_seq())) return ring_clean_tap(p,x,y);
   if((p=proc_find("MascotColorChangeMenu")) && !proc_sus(p)){ if(mascot_color_tap(p,x,y)) return 1; }
+  if((p=proc_find("ProfileCardStampMenu")) && !proc_sus(p)) return stamp_tap(p,x,y);
+  // Profile Card -> My Card (ProfileCardMyCardMenu, a ProcInst: A / X = edit, L / R = pages, no Back prompt): a tap on the card
+  // (+0x78 m_Root ProfileCardRoot, "Card" ~66,86 - 1213,673) = A, outside it = B
+  if((p=proc_find("ProfileCardMyCardMenu")) && !proc_sus(p)){ u64 r=RD64(p+0x78); float x0,y0,x1,y1;
+    int in= uobj_ok(r) && tr_box(u_transform(r),0,&x0,&y0,&x1,&y1) && x>=x0 && x<x1 && y>=y0 && y<y1;
+    tm_log2("my card",in,0); press(in ? BTN_A : BTN_B); return 1; }
   if((p=proc_find("AmiiboMenu")) && !proc_sus(p)){ tm_log2("amiibo scan: B",0,0); press(BTN_B); return 1; }   // "Please scan your amiibo." (scanning is the emulator's own menu): a tap cancels
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
