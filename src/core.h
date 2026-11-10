@@ -72,6 +72,8 @@ static void press(u64 b){ q_push(b,2,3); }
 // ---- right-stick queue (camera): each push holds (x, y) for `hold` frames, then centres the stick for `gap` frames ----
 typedef struct { s32 x, y; int hold, gap; } RStep;
 static RStep rq[16]; static int rqh, rqt, rq_phase, rq_cnt; static s32 g_rs_x, g_rs_y;
+static float f_sqrt(float x){ float r; __asm__("fsqrt %s0, %s1" : "=w"(r) : "w"(x)); return r; }   // no libm import
+static s32 g_ls_x, g_ls_y;   // left-stick injection (world map walking), written into every npad read while non-zero
 static void rs_push(s32 x,s32 y,int hold,int gap){ int n=(rqt+1)&15; if(n==rqh) return; rq[rqt].x=x; rq[rqt].y=y; rq[rqt].hold=hold; rq[rqt].gap=gap; rqt=n; }
 static int rs_pending(void){ return (rqt-rqh)&15; }
 static void rs_clear(void){ rqh=rqt=0; rq_phase=0; g_rs_x=g_rs_y=0; }

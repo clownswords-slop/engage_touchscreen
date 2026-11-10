@@ -21,6 +21,13 @@ static void on_tap(float x,float y){
 #define CAM_DEAD 30.f
 #define CAM_GAIN 0.12f
 static int t_cam; static float t_cam_tilt0, t_cam_target; static s32 g_cam_rs_y;
+// ring polishing (screens.h ring_rotate): a drag turns the ring with the finger, RING_GAIN x RotateSpeed (5) = 0.5 degrees per px
+#define RING_GAIN 0.1f
+static float t_rx, t_ry;
+// Sommie colour screen (MascotColorChangeMenu, "Control Camera" = right stick, HubMascotCamera.UpdateKey): a drag drives the
+// stick with the finger's movement each frame, full deflection from 1/STICK_DRAG_GAIN px a frame
+#define STICK_DRAG_GAIN 0.12f
+static float t_sdx, t_sdy;
 static u64 map_cursor_inst(void){ u64 cell=RD64(M(0x629a8b8)); if(!cell || !mem_ok(cell)) return 0; u64 mi=RD64(cell); if(!mi || (mi&1) || !mem_ok(mi)) return 0;
   u64 c=((u64(*)(u64))M(0x211820))(mi); return c && mem_ok(c) ? c : 0; }
 static int cam_tilt(float*t){ u64 c=map_cursor_inst(); if(!c) return 0; *t=*(volatile float*)(c+0x40); return 1; }
@@ -49,6 +56,10 @@ static int hub_cam_ok(void){ return !g_menu && !help_active() && hubcam() && pro
 
 static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
   if(t_cam==1){ float cur; if(!cam_tilt(&cur)) return; g_cam_rs_y=(s32)(-cam_drive(t_cam_target-cur,8.f)*32000.f); return; }
+  if(t_cam==3) return;   // ring polishing: the drag turns the ring itself (touch_update)
+  if(t_cam==4){ float sx=t_sdx*STICK_DRAG_GAIN, sy=t_sdy*STICK_DRAG_GAIN; t_sdx=t_sdy=0.f;   // Sommie colour screen: "Control Camera"
+    if(sx>1.f) sx=1.f; if(sx<-1.f) sx=-1.f; if(sy>1.f) sy=1.f; if(sy<-1.f) sy=-1.f;
+    g_cam_rs_x=(s32)(-sx*32000.f); g_cam_rs_y=(s32)(sy*32000.f); return; }   // x: the view follows the finger
   float yaw,pit; if(!hub_angles(&yaw,&pit)) return;
   float ey=t_hub_yawt-yaw; while(ey>180.f) ey-=360.f; while(ey<-180.f) ey+=360.f;
   g_cam_rs_x=(s32)(cam_drive(ey,12.f)*32000.f);
@@ -68,6 +79,10 @@ static void touch_update(TouchScreenState1*ts){
         t_cam=1; t_cam_target=t_cam_tilt0; tm_log2("map camera",(s64)t_cam_tilt0,0); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yaw0,&t_hub_pit0)){
         t_cam=2; t_hub_plast=t_hub_pit0; t_hub_yaw0+=dx*HUB_YAW_GAIN*cam_sens_gain(0); t_hub_pit0+=dy*HUB_PIT_GAIN*cam_sens_gain(1); t_hub_pstuck=0; tm_log2("hub camera",(s64)t_hub_yaw0,(s64)t_hub_pit0); }
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && proc_find("MascotColorChangeMenu")){ t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("sommie camera",0,0); }
+      if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
+      if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
       if(t_cam==1){ float d= dy>CAM_DEAD ? dy-CAM_DEAD : dy<-CAM_DEAD ? dy+CAM_DEAD : 0.f; float t=t_cam_tilt0-d*CAM_GAIN;
         float lo=((float(*)(u64))M(0x29aa1d0))(0), hi=((float(*)(u64))M(0x29aa270))(0); if(hi>lo){ if(t<lo) t=lo; if(t>hi) t=hi; }
         t_cam_target=t; return; }

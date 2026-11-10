@@ -63,8 +63,9 @@ static int menu_page_arrow(u64 m,float x,float y){
   if(str_eq(il_cname(m),"TutorialListSelectMenu")){ u64 r=RD64(m+0xe0); if(!uobj_ok(r)) return 0;
     if(go_hit(RD64(r+0x78),x,y,30.f)) return -1; if(go_hit(RD64(r+0x70),x,y,30.f)) return 1; return 0; }
   u64 mc=RD64(m+0x70); if(!uobj_ok(mc)) return 0; u64 tr=u_transform(mc); if(!uobj_ok(tr)) return 0;
-  for(int k=0;k<2;k++){ u64 p=u_parent(tr); if(!uobj_ok(p)) break; tr=p; }
-  return page_arrow_find(tr,0,x,y); }
+  u64 tc=tr; for(int k=0;k<2;k++){ u64 p=u_parent(tr); if(!uobj_ok(p)) break; tr=p; }
+  int r=page_arrow_find(tr,0,x,y); if(r) return r;
+  return page_arrow_find(tc,-2,x,y); }   // deeper under the content itself: Inherit Skills "< Marth >" (content/../../Category/ArrowR, 4 below)
 // Units list (TroopListMenu) column headers = sort. No prompt: d-pad Up from the first row enters sort mode (+0xc4
 // m_SelectSort), Left / Right (IncSort 0x22a5cf0 / DecSort 0x22a5750) step the column, A flips the order, Down leaves.
 // The static m_sortMenu (TroopListMenu statics +0x20, TroopListSortMenu): +0x20 m_sortTitle (List<SortTitle>: +0x10 m_root
@@ -132,11 +133,21 @@ static int kind_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); cons
   #undef KT_IMG
   return 1; }
 
+// Sommie accessories (MascotAccChangeMenu): +0xc4 CurrentPartsType (0 Head, 1 Tail); content +0xe8 m_category1 / +0xf0
+// m_category2 = the two tab icons between the "<" ">" arrows. A tap on one: KeyRight (43, wraps on a trigger) until it is current.
+static int mascot_parts_tap(u64 m,float x,float y){ if(!str_eq(il_cname(m),"MascotAccChangeMenu")) return 0;
+  u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0;
+  for(int k=0;k<2;k++){ u64 go=RD64(c+0xe8+8ul*k); if(!uobj_ok(go) || !u_active(go) || !go_hit(go,x,y,6.f)) continue;
+    for(int s=0;s<2 && RDS32(m+0xc4)!=k;s++) ((void(*)(u64,int,u64))il_vfn(m,43))(m,1,il_vmi(m,43));
+    tm_log2("parts tab",k,0); return 1; }
+  return 0; }
 static u64 proc_find(const char*n);   // screens.h
 // Two-list screens: the other list is a menu proc of its own that isn't focused (Manage Items: the unit's items | the convoy).
 // A tap on one of its rows presses the screen's own Change Menu button, then selects that row as soon as the list has focus.
-typedef struct { const char*from, *to; u64 btn; } MenuPair;
-static const MenuPair k_menu_pairs[]={ {"InventoryUnitItemMenu","InventoryPoolItemMenu",BTN_ZR}, {"InventoryPoolItemMenu","InventoryUnitItemMenu",BTN_ZL} };
+// btn: the screen's change-menu button; or slot: the focused menu's own vtable method that switches (KeyRight 43 / KeyLeft 42)
+typedef struct { const char*from, *to; u64 btn; int slot; } MenuPair;
+static const MenuPair k_menu_pairs[]={ {"InventoryUnitItemMenu","InventoryPoolItemMenu",BTN_ZR,0}, {"InventoryPoolItemMenu","InventoryUnitItemMenu",BTN_ZL,0},
+  {"SkillEditEquipSkillMenu","SkillEditPoolSkillMenu",0,43}, {"SkillEditPoolSkillMenu","SkillEditEquipSkillMenu",0,42} };
 static u64 g_pend_menu; static int g_pend_idx, g_pend_ttl;
 static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
   // Trade (App.SortieSequenceTrade: +0x80 m_menuL, +0x88 m_menuR, both SortieTradeItemMenu): the focused side's own KeyRight /
@@ -147,7 +158,9 @@ static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
     g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
   for(u32 j=0;j<sizeof(k_menu_pairs)/sizeof(k_menu_pairs[0]);j++){ if(!str_eq(cn,k_menu_pairs[j].from)) continue;
     u64 o=proc_find(k_menu_pairs[j].to); if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y); if(i<0) continue;
-    tm_log2("menu pair switch",(s64)j,i); press(k_menu_pairs[j].btn); g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+    tm_log2("menu pair switch",(s64)j,i); int sl=k_menu_pairs[j].slot;
+    if(sl) ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); else press(k_menu_pairs[j].btn);
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
   return 0; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
@@ -160,6 +173,7 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(i<0 && index_tabs_tap(m,x,y)) return 1;
   if(i<0 && kind_tabs_tap(m,x,y)) return 1;
   if(i<0 && menu_pair_tap(m,x,y)) return 1;
+  if(i<0 && mascot_parts_tap(m,x,y)) return 1;
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }

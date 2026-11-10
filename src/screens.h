@@ -159,18 +159,31 @@ static int gmap_reachable(u64 from,u64 to){ u64 q[128]; int qh=0, qt=0; q[qt++]=
     for(int k=0;k<n;k++){ u64 t=RD64(a+0x20+8ul*k); if(!t || !mem_ok(t)) continue; int seen=0; for(int j=0;j<qt;j++) if(q[j]==t){ seen=1; break; }
       if(!seen && qt<128) q[qt++]=t; } }
   return 0; }
+// Walking to a tapped node is NOT done: StartMoveTargetSpot called from outside the Tick left the screen black, and the world map
+// ignores an injected left stick (the hub honours it). Other nodes: nothing; "L To Next Chapter" / "X Fast Travel" are tappable
+// prompts. (gmap_frame / g_gm_target are kept unused for a later attempt.)
+static u64 g_gm_seq, g_gm_target; static int g_gm_ttl;
+static u64 gmap_cam(u64 g){ u64 gc=RD64(g+0xa8); if(!uobj_ok(gc)) return 0; u64 cam=RD64(gc+0x48); return uobj_ok(cam) ? cam : 0; }
+static void gmap_frame(void){ g_ls_x=g_ls_y=0; if(!g_gm_target) return; u64 g=g_gm_seq;
+  if(--g_gm_ttl<=0 || !g || !mem_ok(g) || proc_sus(g)){ g_gm_target=0; return; }
+  u64 now=RD64(g+0x88); if(now==g_gm_target){ tm_log2("gmap: arrived",0,0); g_gm_target=0; return; }
+  int lb=proc_label(g); if(lb!=7 && lb!=8 && lb!=9) return;   // idle or walking: keep holding
+  u64 cam=gmap_cam(g); if(!cam || !now || !mem_ok(now)) return;
+  V3 a=((V3(*)(u64,u64))M(0x2b3d490))(now,0), b=((V3(*)(u64,u64))M(0x2b3d490))(g_gm_target,0); float ax,ay,bx,by; to720(cam,a,&ax,&ay); to720(cam,b,&bx,&by);
+  float dx=bx-ax, dy=by-ay; float l=dx*dx+dy*dy; if(l<1.f) return; float r=1.f/f_sqrt(l);
+  g_ls_x=(s32)(dx*r*32000.f); g_ls_y=(s32)(-dy*r*32000.f); }
 static int gmap_tap(u64 g,float x,float y){ int lb=proc_label(g); if(lb!=7 && lb!=8) return 1;
-  u64 gc=RD64(g+0xa8); if(!uobj_ok(gc)) return 1; u64 cam=RD64(gc+0x48); if(!uobj_ok(cam)) return 1;
+  u64 cam=gmap_cam(g); if(!cam) return 1;
   u64 cell=RD64(M(0x6287828)); if(!cell || !mem_ok(cell)) return 1; u64 mi=RD64(cell); if(!mi || (mi&1) || !mem_ok(mi)) return 1;
   u64 mgr=((u64(*)(u64))M(0x1e9750))(mi); if(!mgr || !mem_ok(mgr)) return 1; u64 arr=RD64(mgr+0x20); if(!arr || !mem_ok(arr)) return 1;
   int n=(int)RD64(arr+0x18); if(n<0 || n>512) return 1; u64 best=0; float bd=45.f*45.f;
-  for(int k=0;k<n;k++){ u64 sp=RD64(arr+0x20+8ul*k); if(!sp || !mem_ok(sp)) continue;
+  for(int k=0;k<n;k++){ u64 sp=RD64(arr+0x20+8ul*k); if(!sp || !mem_ok(sp) || gmap_state(sp)<2) continue;
     V3 p=((V3(*)(u64,u64))M(0x2b3d490))(sp,0); float sx,sy; to720(cam,p,&sx,&sy);
     float dx=sx-x, dy=sy-y, d=dx*dx+dy*dy; if(d<bd){ bd=d; best=sp; } }
   if(!best) return 1;
   if(best==RD64(g+0x88)){ tm_log2("gmap: here, A",0,0); press(BTN_A); return 1; }
   if(!gmap_reachable(RD64(g+0x88),best)){ tm_log2("gmap: node not reachable",0,0); return 1; }
-  int ok=((int(*)(u64,u64,u64))M(0x2b3f880))(g,best,0)&1; tm_log2("gmap: move to node",ok,0); return 1; }
+  tm_log2("gmap: other node (not walked to)",0,0); return 1; }
 
 #ifdef TM_DEBUG
 static void dbg_gspots(void){ u64 g=proc_find("GmapSequence"); if(!g){ os("no gmap"); oc(10); return; } u64 gc=RD64(g+0xa8); u64 cam= uobj_ok(gc) ? RD64(gc+0x48) : 0;
@@ -182,15 +195,55 @@ static void dbg_gspots(void){ u64 g=proc_find("GmapSequence"); if(!g){ os("no gm
     os(gmap_reachable(RD64(g+0x88),sp)?" reach":""); os(" state "); oi(gmap_state(sp)); oc(10); } }
 #endif
 
+// ---- ring polishing (Ring Chamber -> Polish Rings, App.RingCleaningSequence): +0x98 m_RingController, +0xc0 m_Cloth.
+// App.RingCleaningCloth: +0x20 m_Rect = the full-screen root it moves in, +0x28 m_LocalPosition (local units of m_Rect),
+// +0x30 m_HoldGapPosition; Commit 0x24167f0 clamps the position to the polishing area and places the cloth. The left stick moves
+// the cloth, A polishes under it (R firmly: its key-help prompt), the right stick turns the ring: RingCleaningRingController
+// (+0x18 m_Ring GameObject) UpdateRotate 0x2418e00 (rdx, rdy: degrees x RotateSpeed +0x40 = 5).
+// A tap puts the cloth on the tapped point and polishes (A); a drag turns the ring under the finger (touch.h).
+static u64 ring_clean_seq(void){ u64 p=proc_find("RingCleaningSequence"); return p && !proc_sus(p) ? p : 0; }
+static int ring_clean_tap(u64 p,float x,float y){ u64 c=RD64(p+0xc0); if(!uobj_ok(c)) return 1; u64 r=RD64(c+0x20);
+  float x0,y0,x1,y1; if(!tr_box(r,0,&x0,&y0,&x1,&y1) || x1<=x0 || y1<=y0) return 1; Rect4 rc=u_rect(r);
+  float lx=rc.x+(x-x0)/(x1-x0)*rc.w, ly=rc.y+(y1-y)/(y1-y0)*rc.h;
+  *(volatile float*)(c+0x28)=lx-RDF(c+0x30); *(volatile float*)(c+0x2c)=ly-RDF(c+0x34);
+  ((void(*)(u64,u64))M(0x24167f0))(c,0); tm_log2("polish at",(s64)lx,(s64)ly); press(BTN_A); return 1; }
+static int ring_rotate(float rdx,float rdy){ u64 p=ring_clean_seq(); if(!p) return 0; u64 k=RD64(p+0x98);
+  if(!k || !mem_ok(k) || !uobj_ok(RD64(k+0x18))) return 0; ((void(*)(u64,float,float,u64))M(0x2418e00))(k,rdx,rdy,0); return 1; }
+
+// ---- Sommie colour palette (App.MascotColorChangeMenu: a ProcInst grid, not a BasicMenu): +0x80 m_result, +0x90 m_cursor
+// (CursorTop: +0x10 XCount, +0x14 YCount, +0x20 m_cursorTop RectTransform, +0x28 m_selectIndex (x, y)). Cell centres in the
+// cursor's parent: x {-213,-71,71,213}[col], y {204,62,-80,-222}[row] (GetPositionX / Y tables, main+0x4d6bea0 / +0x4d6beac).
+// A tap on a cell moves the cursor there at once: SetIndexInstant 0x1e53440 + SetSelectColor 0x2032070 and m_result 0x1000
+// (what KeyLeft / ... do after MoveCursor); a tap on the current cell is A.
+static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c || !mem_ok(c)) return 0; u64 ct=RD64(c+0x20);
+  if(!uobj_ok(ct)) return 0; u64 par=u_parent(ct); if(!uobj_ok(par)) return 0;
+  static const float cx[4]={-213.f,-71.f,71.f,213.f}, cy[4]={204.f,62.f,-80.f,-222.f};
+  int nx=RDS32(c+0x10), ny=RDS32(c+0x14); if(nx<1 || ny<1) return 0; if(nx>4) nx=4; if(ny>4) ny=4;
+  int best=-1; float bd=1e12f, ax=0, ay=0, bx=0, by=0;
+  for(int j=0;j<ny;j++) for(int i=0;i<nx;i++){ V3 v={cx[i],cy[j],0.f}; float sx,sy; to720(0,u_tpoint(par,v),&sx,&sy);
+    if(!i && !j){ ax=sx; ay=sy; } if(i==1 && !j){ bx=sx; by=sy; }
+    float dx=sx-x, dy=sy-y, d=dx*dx+dy*dy; if(d<bd){ bd=d; best=j*nx+i; } }
+  float sp=(bx-ax)*(bx-ax)+(by-ay)*(by-ay); if(nx<2) sp=80.f*80.f;
+  if(best<0 || bd>sp*0.36f){   // not on a cell (within 0.6 of the cell spacing): well away from the palette (no Back prompt) = B
+    float s=f_sqrt(sp), lx=ax-s, rx=ax+s*(float)nx, ty=ay-s, by2=ay+s*(float)ny;
+    if(x<lx || x>rx || y<ty || y>by2){ tm_log2("colour outside: B",0,0); press(BTN_B); return 1; } return 0; }
+  int cur=RDS32(c+0x2c)*nx+RDS32(c+0x28);
+  if(best==cur){ tm_log2("colour: A",best,0); press(BTN_A); return 1; }
+  ((void(*)(u64,int,u64))M(0x1e53440))(c,best,0); ((void(*)(u64,u64))M(0x2032070))(p,0); WR32(p+0x80,0x1000);
+  tm_log2("colour cell",best,0); return 1; }
+
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
   if(view_page_tap()) return 1;
+  if((p=ring_clean_seq())) return ring_clean_tap(p,x,y);
+  if((p=proc_find("MascotColorChangeMenu")) && !proc_sus(p)){ if(mascot_color_tap(p,x,y)) return 1; }
+  if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
-     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence")
+     || proc_find("ProcRelayResult") || proc_find("GodGrowSequence") || proc_find("RingGachaSequence") || proc_find("RingSynthesisSequence")   /* Create / Meld Bond Rings reveal: (A) Next / (A) Confirm */
      || proc_find("GameMessage") || proc_find("DemoTelop")){   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
