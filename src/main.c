@@ -199,6 +199,7 @@ static void dbg_ext(const char*p){
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
   else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
+  else if(starts(p,"gspots")){ dbg_gspots(); }
   else if(starts(p,"walkto")){ p+=6; wk_x=(float)(s64)parse_num(&p)/100.f; wk_z=(float)(s64)parse_num(&p)/100.f; wk_flip=(int)parse_num(&p); wk_n=900; os("walk\n"); }
   else if(starts(p,"access")){ V3 me={0,0,0}; int hp=hub_player_pos(&me); os("me "); of(me.x); oc(' '); of(me.z); os(hp?"\n":" (no player)\n");
     u64 t=il_type("App.HubAccess, Assembly-CSharp"); u64 arr= t ? ((u64(*)(u64,u64))M(0x32ef7d0))(t,0) : 0; int n= arr&&mem_ok(arr) ? (int)RD64(arr+0x18) : 0;
@@ -219,7 +220,7 @@ static void dbg_ext(const char*p){
   else if(starts(p,"units")){   // UnitPool.Get(i): x,z, force type, ident
     for(int i=0;i<250;i++){ u64 u=((u64(*)(int,u64))M(0x1c53f80))(i,0); if(!u||!mem_ok(u)) continue; u64 f=RD64(u+0x50); if(!f||!mem_ok(f)) continue;
       oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); os(" hp "); oi(RD8(u+0x8c)); oc('\n'); } }
-  else if(starts(p,"label")){ p+=5; u64 q=parse_num(&p); os("label "); oi(((int(*)(u64,u64))M(0x281eb10))(q,0)); oc('\n'); }
+  else if(starts(p,"label")){ p+=5; u64 q=parse_num(&p); os("label "); oi(proc_label(q)); oc('\n'); }
   else if(starts(p,"drag")){ p+=4; dg_x0=(float)(s64)parse_num(&p); dg_y0=(float)(s64)parse_num(&p); dg_x1=(float)(s64)parse_num(&p); dg_y1=(float)(s64)parse_num(&p);
     dg_n=(int)parse_num(&p); dg_hold=(int)parse_num(&p); dg_i=0; os("drag\n"); }
   else if(starts(p,"toff")){ p+=4; g_tile_off=parse_f(&p); os("ok\n"); }

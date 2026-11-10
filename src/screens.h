@@ -9,7 +9,13 @@ static u64 proc_find(const char*n){
       u64 nx=RD64(q+0x48), ch=RD64(q+0x38); if(nx && sp<48) st[sp++]=nx; if(ch && sp<48) st[sp++]=ch; } }
   return 0; }
 static int proc_sus(u64 p){ return RDS32(p+0x5c); }
-static int proc_label(u64 p){ return ((int(*)(u64,u64))M(0x281eb10))(p,0); }   // ProcInst.GetLabel
+// ProcInst.GetLabel (0x281eb10) walks the proc's descriptors (+0x10 array, +0x18 current index) back to one of type 3 and asks it;
+// a proc being torn down (end of a chapter) has null descriptors and GetLabel crashes on them: check the walk first, -1 if unsafe
+static int proc_label(u64 p){ if(!p || !mem_ok(p)) return -1; int i=RDS32(p+0x18); u64 a=RD64(p+0x10); if(i<0 || !a || !mem_ok(a)) return -1;
+  int n=RDS32(a+0x18); if(i>=n || n>4096) return -1;
+  for(int k=i;k>=0;k--){ u64 d=RD64(a+0x20+8ul*k); if(!d || !mem_ok(d) || !RD64(d) || !mem_ok(RD64(d))) return -1;
+    if(RDS32(d+0x10)==3) return ((int(*)(u64,u64))M(0x281eb10))(p,0); }
+  return -1; }
 
 // ---- new game: gender select (App.MainMenuSequence.PlayerGenderSelectMenuSequence) ----
 // Arrows left / right of the model switch the choice (m_Gender +0x78: 0 none, 1 = Left, 2 = Right); A confirms once one is chosen.
@@ -135,9 +141,46 @@ static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_
   return 1; }
 
 // read-only pages without prompts that B closes ("Resources Found in Firene" from Donations -> X Details): tap = B
-static const char* const k_view_pages[]={ "InvestmentNationDataSequence" };
+// also the world map's whole-continent view (ZR zoomed all the way out: GmapSequence+GmapWholeMapSequence, no prompts; B returns)
+static const char* const k_view_pages[]={ "InvestmentNationDataSequence", "GmapWholeMapSequence" };
 static int view_page_tap(void){ for(u32 j=0;j<sizeof(k_view_pages)/sizeof(k_view_pages[0]);j++){ u64 p=proc_find(k_view_pages[j]);
     if(p && !proc_sus(p)){ tm_log2("view page: B",(s64)j,0); press(BTN_B); return 1; } } return 0; }
+
+// ---- world map (App.GmapSequence): a tap on a location node walks Alear there along the paths (StartMoveTargetSpot 0x2b3f880,
+// what L "To Next Chapter" uses with the newest node); a tap on the node she stands on (+0x88 m_NowSpot) is A (enter / talk).
+// Nodes: GmapSpotManager singleton (accessor 0x1e9750, MethodInfo in the cell at main+0x6287828) +0x20 GmapSpot[],
+// GmapSpot.get_Position 0x2b3d490; projected with GmapSequence +0xa8 GmapCamera +0x48 m_Camera. Only while idle (label 7 / 8 Tick).
+// GetRoute (inside StartMoveTargetSpot) throws (and the game aborts) for a node the paths don't connect: only nodes reachable from
+// the current one through GmapSpot +0x38 m_NextSpots (GmapSpot[]) are walked to
+static int gmap_state(u64 sp){ return ((int(*)(u64,u64))M(0x2b37310))(sp,0); }   // GmapSpot.get_SpotState: 0/1 hidden, 3 Active, 8 CanSearch ...
+static int gmap_reachable(u64 from,u64 to){ u64 q[128]; int qh=0, qt=0; q[qt++]=from;
+  if(gmap_state(to)<2) return 0;   // a hidden node (state 0 / 1): nothing to walk to yet
+  while(qh<qt){ u64 s=q[qh++]; if(s==to) return 1; if(s!=from && gmap_state(s)<2) continue; u64 a=RD64(s+0x38); if(!a || !mem_ok(a)) continue; int n=(int)RD64(a+0x18); if(n<0 || n>16) continue;
+    for(int k=0;k<n;k++){ u64 t=RD64(a+0x20+8ul*k); if(!t || !mem_ok(t)) continue; int seen=0; for(int j=0;j<qt;j++) if(q[j]==t){ seen=1; break; }
+      if(!seen && qt<128) q[qt++]=t; } }
+  return 0; }
+static int gmap_tap(u64 g,float x,float y){ int lb=proc_label(g); if(lb!=7 && lb!=8) return 1;
+  u64 gc=RD64(g+0xa8); if(!uobj_ok(gc)) return 1; u64 cam=RD64(gc+0x48); if(!uobj_ok(cam)) return 1;
+  u64 cell=RD64(M(0x6287828)); if(!cell || !mem_ok(cell)) return 1; u64 mi=RD64(cell); if(!mi || (mi&1) || !mem_ok(mi)) return 1;
+  u64 mgr=((u64(*)(u64))M(0x1e9750))(mi); if(!mgr || !mem_ok(mgr)) return 1; u64 arr=RD64(mgr+0x20); if(!arr || !mem_ok(arr)) return 1;
+  int n=(int)RD64(arr+0x18); if(n<0 || n>512) return 1; u64 best=0; float bd=45.f*45.f;
+  for(int k=0;k<n;k++){ u64 sp=RD64(arr+0x20+8ul*k); if(!sp || !mem_ok(sp)) continue;
+    V3 p=((V3(*)(u64,u64))M(0x2b3d490))(sp,0); float sx,sy; to720(cam,p,&sx,&sy);
+    float dx=sx-x, dy=sy-y, d=dx*dx+dy*dy; if(d<bd){ bd=d; best=sp; } }
+  if(!best) return 1;
+  if(best==RD64(g+0x88)){ tm_log2("gmap: here, A",0,0); press(BTN_A); return 1; }
+  if(!gmap_reachable(RD64(g+0x88),best)){ tm_log2("gmap: node not reachable",0,0); return 1; }
+  int ok=((int(*)(u64,u64,u64))M(0x2b3f880))(g,best,0)&1; tm_log2("gmap: move to node",ok,0); return 1; }
+
+#ifdef TM_DEBUG
+static void dbg_gspots(void){ u64 g=proc_find("GmapSequence"); if(!g){ os("no gmap"); oc(10); return; } u64 gc=RD64(g+0xa8); u64 cam= uobj_ok(gc) ? RD64(gc+0x48) : 0;
+  u64 cell=RD64(M(0x6287828)); u64 mi= cell&&mem_ok(cell) ? RD64(cell) : 0; if(!mi || (mi&1) || !uobj_ok(cam)){ os("no mgr/cam"); oc(10); return; }
+  u64 mgr=((u64(*)(u64))M(0x1e9750))(mi); u64 arr= mgr ? RD64(mgr+0x20) : 0; if(!arr || !mem_ok(arr)) return; int n=(int)RD64(arr+0x18);
+  os("now "); ox(RD64(g+0x88)); os(" label "); oi(proc_label(g)); oc(10);
+  for(int k=0;k<n && k<200;k++){ u64 sp=RD64(arr+0x20+8ul*k); if(!sp || !mem_ok(sp)) continue; V3 p=((V3(*)(u64,u64))M(0x2b3d490))(sp,0);
+    float sx,sy; to720(cam,p,&sx,&sy); if(gmap_state(sp)<2) continue; oi(k); oc(' '); ox(sp); oc(' '); oi((s64)sx); oc(','); oi((s64)sy);
+    os(gmap_reachable(RD64(g+0x88),sp)?" reach":""); os(" state "); oi(gmap_state(sp)); oc(10); } }
+#endif
 
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
@@ -157,6 +200,7 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }
   if((p=proc_find("MapSequenceHuman")) && !proc_sus(p)) return map_tap(p,x,y);
   if((p=proc_find("HubSequence")) && !proc_sus(p)) return hub_tap(x,y);
+  if((p=proc_find("GmapSequence")) && !proc_sus(p)) return gmap_tap(p,x,y);
   if((p=proc_find("EventSequence"))){ press(BTN_A); return 1; }
   if((p=proc_find("MapSequence")) && (proc_label(p)==17 || proc_label(p)==18)){ press(BTN_A); return 1; }   // "STAGE CLEAR!" (Complete) / "GAME OVER" (GameOver) wait for A
   return 0; }
