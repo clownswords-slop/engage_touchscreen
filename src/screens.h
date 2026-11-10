@@ -237,6 +237,7 @@ static int screen_tap(float x,float y){ u64 p;
   if(view_page_tap()) return 1;
   if((p=ring_clean_seq())) return ring_clean_tap(p,x,y);
   if((p=proc_find("MascotColorChangeMenu")) && !proc_sus(p)){ if(mascot_color_tap(p,x,y)) return 1; }
+  if((p=proc_find("AmiiboMenu")) && !proc_sus(p)){ tm_log2("amiibo scan: B",0,0); press(BTN_B); return 1; }   // "Please scan your amiibo." (scanning is the emulator's own menu): a tap cancels
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
