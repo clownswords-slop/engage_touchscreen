@@ -112,7 +112,7 @@ static int index_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); con
 typedef struct { const char*cls; u32 kind_off, icons_off; int list; } KindTabs;
 static const KindTabs k_kind_tabs[]={ {"InventoryPoolItemMenu",0xd8,0x108,1},
   {"WeaponShopBuyMenu",0xd0,0xe8}, {"ShopSellMenu",0xc4,0xe8}, {"AccessoryShopBuyMenu",0xd0,0xf0}, {"AccessoryShopChangeMenu",0xc4,0xe8},
-  {"RefineShopRefineBaseMenu",0xc4,0xf0}, {"RelayMessageMenu",0xc4,0xe8} };
+  {"RefineShopRefineBaseMenu",0xc4,0xf0}, {"RefineShopEngraveItemSelectMenu",0xc4,0xf0}, {"RelayMessageMenu",0xc4,0xe8} };
 static int kind_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); const KindTabs*kt=0;
   for(u32 j=0;j<sizeof(k_kind_tabs)/sizeof(k_kind_tabs[0]);j++) if(str_eq(cn,k_kind_tabs[j].cls)) kt=&k_kind_tabs[j];
   if(!kt) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 arr=RD64(c+kt->icons_off); if(!arr || !mem_ok(arr)) return 0;
