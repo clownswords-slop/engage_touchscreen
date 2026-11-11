@@ -252,6 +252,8 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }
+  // value arrows drawn outside the selected row (the birthday's ArrowT / ArrowB over / under the value): step it
+  if(i<0){ int ar=item_arrow(menu_item(m,RDS32(m+0xa0)),x,y); if(ar){ tm_log2("value arrow",ar,0); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; } }
   // a tap off the items does nothing (taps are A, never B, unless a screen says otherwise; the user's rule)
   if(i<0) return 1;
   int ar=item_arrow(menu_item(m,i),x,y);

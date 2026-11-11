@@ -19,11 +19,13 @@ static int proc_label(u64 p){ if(!p || !mem_ok(p)) return -1; int i=RDS32(p+0x18
 
 // ---- new game: gender select (App.MainMenuSequence.PlayerGenderSelectMenuSequence) ----
 // Arrows left / right of the model switch the choice (m_Gender +0x78: 0 none, 1 = Left, 2 = Right); A confirms once one is chosen.
+// The arrows sit near x 223 / 1050; a tap on a figure (left / right of the middle) chooses it and confirms (one tap = A).
 static int gender_tap(u64 p,float x,float y){
-  if(x<440.f){ press(BTN_L); return 1; }
-  if(x>840.f){ press(BTN_R); return 1; }
-  if(RDS32(p+0x78)!=0) press(BTN_A);
-  return 1; }
+  if(x<300.f){ press(BTN_L); return 1; }
+  if(x>1000.f){ press(BTN_R); return 1; }
+  int want= x<640.f ? 1 : 2, cur=RDS32(p+0x78); tm_log2("gender",want,cur);
+  if(cur!=want) press(want==1 ? BTN_L : BTN_R);
+  press(BTN_A); return 1; }
 
 // ---- battle map: player phase (App.MapSequenceHuman) ----
 // +0xc0 m_OperateMode: 1 Direct (the picked unit walks with the input and the cursor is put back on it every frame), 2 Indirect
@@ -282,6 +284,24 @@ static int stamp_tap(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78
   ((void(*)(u64,float,float,float,float,float,float,int,u64))M(0x2bf8bc0))(sr,dx*k,-dy*k,r.x,r.y,r.w,r.h,RDS32(p+0xc8)<2,0);
   ((void(*)(u64,u64))M(0x2bf4720))(p,0); tm_log2("stamp cursor",(s64)dx,(s64)dy); return 1; }
 
+// ---- dialogue text log (Talk3D.TalkLogSequence; the log is Talk3D.TalkLog, a SingletonMonoBehaviour: get_Instance 0x21fe50 with
+// the MethodInfo cell main+0x62a4b18): +0x38 m_WindowList (TalkLogUI.Window[]: +0x18 m_RootObject), +0x78 m_CursorIndex,
+// +0x7c m_ScrollIndex. A tap on an entry moves the cursor there with the log's own CursorUp / CursorDown (0x20c2010 / 0x20c2290,
+// called in one go: instant) and presses A (replays its voice), the one-tap rule. Entries are ranked top to bottom on screen; the
+// top one is the scroll index.
+static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); if(!tl) return 0; u64 arr=RD64(tl+0x38);
+  if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>8) n=8;
+  float wy[8]; int hit=-1;
+  for(int i=0;i<n;i++){ wy[i]=1e9f; u64 w=RD64(arr+0x20+8ul*i); if(!w || !mem_ok(w)) continue; u64 go=RD64(w+0x18); if(!uobj_ok(go) || !u_active(go)) continue;
+    float x0,y0,x1,y1; if(!tr_box(u_go_transform(go),0,&x0,&y0,&x1,&y1) || y1<=0.f || y0>=720.f) continue;   // on screen only (one waits above for the scroll)
+    wy[i]=y0; if(x>=x0 && x<x1 && y>=y0 && y<y1) hit=i; }
+  if(hit<0) return 1;
+  int rank=0; for(int i=0;i<n;i++) if(wy[i]<wy[hit]) rank++;
+  int cur=RDS32(tl+0x78), sc=RDS32(tl+0x7c), want=sc+rank; tm_log2("talk log entry",want,cur);
+  for(int g=0;g<8 && RDS32(tl+0x78)<want;g++){ int c=RDS32(tl+0x78); ((int(*)(u64,int,int,u64))M(0x20c2290))(tl,1,1,0); if(RDS32(tl+0x78)==c) break; }
+  for(int g=0;g<8 && RDS32(tl+0x78)>want;g++){ int c=RDS32(tl+0x78); ((void(*)(u64,int,u64))M(0x20c2010))(tl,1,0); if(RDS32(tl+0x78)==c) break; }
+  press(BTN_A); return 1; }
+
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
   if(view_page_tap()) return 1;
@@ -297,6 +317,7 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
+  if((p=proc_find("TalkLogSequence")) && !proc_sus(p)) return talklog_tap(x,y);
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
