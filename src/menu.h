@@ -197,7 +197,7 @@ static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
   { u64 it=menu_item(m,0); if(it && str_eq(il_cname(it),"MonthMenuItem")) return 1; }
-  return str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu"); }
+  return str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu") || str_eq(c,"MyRoomRelianceSelect"); }
 // ---- battle map Additional Info (ZR held: MapNavigationSequence with the tab row MapNavigationStatusMenu and the Minimap list
 // MapNavigationMiniMapMenu, both BasicMenus) ----
 // A tap on a tab / Minimap row selects it at once (no A: the screen shows them live); the "^" "v" arrows beside the Minimap list

@@ -320,6 +320,10 @@ static int screen_tap(float x,float y){ u64 p;
     int in= uobj_ok(r) && tr_box(u_transform(r),0,&x0,&y0,&x1,&y1) && x>=x0 && x<x1 && y>=y0 && y<y1;
     tm_log2("my card",in,0); if(in) press(BTN_A); return 1; }
   if((p=proc_find("AmiiboMenu")) && !proc_sus(p)) return 1;   // "Please scan your amiibo." (scanning is the emulator's own menu): a tap cancels
+  // Ally Notebook (FriendListSequence: "X List / A Zoom Portrait / L R Cycle Allies / ZL ZR Cycle Countries" in the title bar,
+  // all tappable there): a tap on the page = A (zoom the portrait); the zoomed portrait (ProcZoom, no prompts) closes with A too
+  if((p=proc_find("ProcZoom")) && !proc_sus(p) && proc_find("FriendListSequence")){ press(BTN_A); return 1; }
+  if((p=proc_find("FriendListSequence")) && !proc_sus(p)){ press(BTN_A); return 1; }
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
