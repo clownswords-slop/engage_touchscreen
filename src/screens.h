@@ -48,15 +48,21 @@ static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M
 #define TILE 5.f
 static float g_tile_off=0.5f;
 static int ifloor(float f){ int i=(int)f; return (f<(float)i) ? i-1 : i; }
+// a visible piece under tr (3 levels) that holds (x, y): one strip or icon, not a container (under 130 px tall), so the map seen
+// between the bar's parts stays the map
+static int piece_hit(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(n>24) n=24;
+  for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
+    float a,b,e,f; if(tr_box(c,0,&a,&b,&e,&f) && e>a && f>b && f-b<130.f && x>=a && x<e && y>=b && y<f && ui_alpha(c)>=0.05f) return 1;
+    if(d<3 && piece_hit(c,d+1,x,y)) return 1; }
+  return 0; }
 // The unit bar at the bottom of the battle map (App.UnitInfo, a ProcInst: +0x80 m_Windows, UnitInfo.Window[]: +0x40 m_IsVisible,
 // +0x30 m_UnitInfoWindowSimple (UnitInfoWindow: +0x18 m_GameObject)): the 720p box of its visible window that holds (x, y).
-// Its root spans the screen, so the box is the union of the pieces under it (kh_box_add, as for the hub labels).
+// Its root spans the screen, so a tap counts only on one of its pieces (piece_hit).
 static int unitbar_hit(float x,float y){ u64 p=proc_find("UnitInfo"); if(!p || !mem_ok(p)) return 0; u64 arr=RD64(p+0x80);
   if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>4) n=4;
   for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd) || !RD8(wd+0x40)) continue; u64 uw=RD64(wd+0x30);
     if(!uw || !mem_ok(uw)) continue; u64 go=RD64(uw+0x18); if(!uobj_ok(go) || !u_active(go)) continue;
-    float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_go_transform(go),0,&x0,&y0,&x1,&y1);
-    if(x1>x0 && x>=x0 && x<x1 && y>=y0 && y<y1){ tm_log2("unit bar",(s64)y0,(s64)y1); return 1; } }
+    if(piece_hit(u_go_transform(go),0,x,y)){ tm_log2("unit bar",(s64)x,(s64)y); return 1; } }
   return 0; }
 static int map_tap(u64 h,float x,float y){ if(unitbar_hit(x,y)){ details_at(x,y,BTN_X); return 1; }   // X Details on the tapped element
   V3 w; if(!map_unproject(x,y,&w)) return 0; human_indirect(h);
@@ -90,8 +96,14 @@ static int target_tap(u64 ts,int tx,int tz){ u64 mt=map_target(); if(!mt || !mem
 static int map_tile_at(float x,float y,int*tx,int*tz){ V3 w; if(!map_unproject(x,y,&w)) return 0; V3 c=cursor_pos();
   *tx=cursor_x()+ifloor((w.x-c.x)/TILE+g_tile_off); *tz=cursor_z()+ifloor((w.z-c.z)/TILE+g_tile_off); return tile_in_play(*tx,*tz); }
 
-// ---- tutorial windows (App.TutorialSequence): page arrows left / right, anything else is A (next page / close) ----
-static int tutorial_tap(float x,float y){
+// ---- tutorial windows (App.TutorialSequence): page arrows left / right, inside the window A (next page / close on the last);
+// outside the window ("Wdw" under +0x90 m_LocatorRoot) closes it: B doesn't, A does on the last page, so jump there
+// (+0xa8 m_Page = +0x98 m_TutorialData count - 1, SetPage 0x1a00870 redraws) and press A ----
+static int tutorial_tap(u64 p,float x,float y){
+  u64 lr=RD64(p+0x90); u64 wd= uobj_ok(lr) ? tr_child_named(u_transform(lr),"Wdw") : 0; float x0,y0,x1,y1;
+  if(wd && tr_box(wd,0,&x0,&y0,&x1,&y1) && x1>x0 && (x<x0 || x>=x1 || y<y0 || y>=y1)){
+    int n=list_n(RD64(p+0x98)); if(n>0 && RDS32(p+0xa8)!=n-1){ WR32(p+0xa8,(u32)(n-1)); ((void(*)(u64,u64))M(0x1a00870))(p,0); }
+    tm_log2("tutorial outside: close",n,0); press(BTN_A); return 1; }
   if(y>280.f && y<440.f && x<420.f){ press(BTN_L); return 1; }
   if(y>280.f && y<440.f && x>860.f){ press(BTN_R); return 1; }
   press(BTN_A); return 1; }
@@ -123,8 +135,8 @@ static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq
   { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
       if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
   // the second command beside it (m_CommandSubRoot, e.g. Engage Attack when Engage is possible): the button its children name
-  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,8.f)){ u64 b=command_btn(u_go_transform(sub),x,y); tm_log2("forecast subcommand",(s64)b,0);
-      if(b) press(b); return 1; } }
+  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,8.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;   // "CommandSub" = Icon + text: the (+) Engage prompt
+      tm_log2("forecast subcommand",(s64)b,0); press(b); return 1; } }
   // anything else on the two info panels (m_InfoLeft / m_InfoRight +0x40 / +0x48): X Details on that element
   for(int k=0;k<2;k++){ u64 pg=RD64(r+0x40+8ul*k); if(!uobj_ok(pg) || !u_active(pg)) continue;
     float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_go_transform(pg),0,&x0,&y0,&x1,&y1);
@@ -295,7 +307,7 @@ static int screen_tap(float x,float y){ u64 p;
   // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
   // Off (default) = taps do nothing and drags move the camera (touch.h, the right stick that CombatInput reads into CameraPan)
   if((p=proc_find("CombatSequence"))){ if(g_tap_skip) press(BTN_PLUS); return 1; }
-  if((p=proc_find("TutorialSequence")) && !proc_sus(p)) return tutorial_tap(x,y);
+  if((p=proc_find("TutorialSequence")) && !proc_sus(p)) return tutorial_tap(p,x,y);
   if((p=proc_find("PlayerGenderSelectMenuSequence")) && !proc_sus(p)) return gender_tap(p,x,y);
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }
   if((p=proc_find("MapSequenceHuman")) && !proc_sus(p)) return map_tap(p,x,y);
