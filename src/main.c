@@ -198,6 +198,7 @@ static void dbg_ext(const char*p){
         for(int k=0;k<d;k++) oc(' '); os(il_cname(q)); oc(' '); os_ilstr(RD64(q+0x20)); os(" st "); oi(RD32(q+0x58)); os(" sus "); oi(RDS32(q+0x5c)); oc(' '); ox(q); oc('\n');
         u64 nx=RD64(q+0x48); if(nx && sp<64){ st[sp]=nx; dp[sp++]=d; }
         u64 ch=RD64(q+0x38); if(ch && sp<64 && d<maxd){ st[sp]=ch; dp[sp++]=d+1; } } } }
+  else if(starts(p,"mapcam")){ u64 c=map_cursor_inst(); os("mapcam "); ox(c); if(c){ os(" rot "); of(*(volatile float*)(c+0x40)); oc(32); of(*(volatile float*)(c+0x44)); oc(32); of(*(volatile float*)(c+0x48)); } oc(10); }
   else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
   else if(starts(p,"gspots")){ dbg_gspots(); }
   else if(starts(p,"walkto")){ p+=6; wk_x=(float)(s64)parse_num(&p)/100.f; wk_z=(float)(s64)parse_num(&p)/100.f; wk_flip=(int)parse_num(&p); wk_n=900; os("walk\n"); }

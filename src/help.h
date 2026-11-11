@@ -22,7 +22,9 @@ static int help_tap(float x,float y){ u64 h=help_active(); if(!h) return 0;
   for(int i=0;i<n && i<64;i++){ float x0,y0,x1,y1; if(!help_item_box(h,i,&x0,&y0,&x1,&y1)) continue;
     if(x<x0-4.f || x>=x1+4.f || y<y0-4.f || y>=y1+4.f) continue; float a=(x1-x0)*(y1-y0); if(a<ba){ ba=a; best=i; } }
   tm_log2("help hit",best,RDS32(h+0x38));
-  if(best<0) return 1;   // off every element: nothing (taps are never B)
+  // off every element: close Details with the button that toggles it (X on the battle map / forecast / unit details; not B,
+  // taps are never B). The game shows no prompt for leaving Details, so without this a touch player is stuck in it.
+  if(best<0){ press(BTN_X); tm_log2("help close",0,0); return 1; }
   if(best==RDS32(h+0x38)) return 1;
   u64 it=list_at(RD64(h+0x30),best); WR32(h+0x38,(u32)best); WR32(h+0x44,RD32(it+0x18)); WR32(h+0x48,RD32(it+0x1c));
   ((void(*)(u64,int,u64))M(0x2982ec0))(h,0,0);

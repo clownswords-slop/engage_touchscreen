@@ -12,14 +12,23 @@ static void on_tap(float x,float y){
   screen_tap(x,y);
 }
 
-// ---- battle map camera: a vertical drag tilts it (the right stick's y: down = higher / farther, up = lower / closer; its x does
-// nothing on battle maps). App.MapCursor (singleton: get_Instance 0x211820 with the MethodInfo in the cell at main+0x629a8b8)
+// ---- battle map camera: a vertical drag tilts it (the right stick's y: down = higher / farther, up = lower / closer; its analog
+// x does nothing, the turn reads the stick's digital direction bits, see CAM_YAW_STEP). App.MapCursor (singleton: get_Instance 0x211820 with the MethodInfo in the cell at main+0x629a8b8)
 // +0x40 m_Rotate.x = the tilt in degrees (53 default); GetCameraTiltMin / Max 0x29aa1d0 / 0x29aa270 (GameParam floats).
 // The tilt follows the finger: target = tilt at the start - 0.12 deg per px past a 30 px dead zone (drag down = lower / closer,
 // drag up = more overhead, as in Three Houses where dragging down lowers the camera),
 // the stick is driven towards it each frame (proportional, full deflection from 8 degrees off).
+// A horizontal drag turns it (MapCursor.TickInputRotate 0x29b9470: one step of m_Rotate.y (+0x44) per StickRLeft / StickRRight
+// press edge, GameParam-clamped to +-30 degrees, so: left / centre / right). As in Three Houses every 128 px of horizontal drag
+// is one push. The camera orbits the cursor at the screen centre: StickRRight (+30) moves the ground below the centre right and
+// the ground beyond it left, so the point under the finger follows it like a turntable: a drag that starts in the lower half
+// pushes the stick the finger's way, one in the upper half the other way.
 #define CAM_DEAD 30.f
 #define CAM_GAIN 0.12f
+#define CAM_YAW_STEP 128.f
+#define BTN_RS_LEFT (1ul<<20)
+#define BTN_RS_RIGHT (1ul<<22)
+static int t_cam_steps, t_cam_ysign;
 static int t_cam; static float t_cam_tilt0, t_cam_target; static s32 g_cam_rs_y;
 // ring polishing (screens.h ring_rotate): a drag turns the ring with the finger, RING_GAIN x RotateSpeed (5) = 0.5 degrees per px
 #define RING_GAIN 0.1f
@@ -81,8 +90,8 @@ static void touch_update(TouchScreenState1*ts){
     if(x==0.f && y==0.f){ x=t_x; y=t_y; }   // dragged off screen: still held, reported at (0,0)
     t_x=x; t_y=y;
     if(!g_menu){ float dx=x-t_x0, dy=y-t_y0;
-      if(!t_cam && (dy>CAM_DEAD || dy<-CAM_DEAD) && dy*dy>dx*dx && map_cam_ok() && cam_tilt(&t_cam_tilt0)){
-        t_cam=1; t_cam_target=t_cam_tilt0; tm_log2("map camera",(s64)t_cam_tilt0,0); }
+      if(!t_cam && dx*dx+dy*dy>CAM_DEAD*CAM_DEAD && map_cam_ok() && cam_tilt(&t_cam_tilt0)){
+        t_cam=1; t_cam_target=t_cam_tilt0; t_cam_steps=0; t_cam_ysign= t_y0>=360.f ? 1 : -1; tm_log2("map camera",(s64)t_cam_tilt0,0); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yawt,&t_hub_pitt)){
         t_cam=2; t_hlx=t_x0; t_hly=t_y0; tm_log2("hub camera",(s64)t_hub_yawt,(s64)t_hub_pitt); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence"))){
@@ -90,7 +99,10 @@ static void touch_update(TouchScreenState1*ts){
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
       if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
-      if(t_cam==1){ float d= dy>CAM_DEAD ? dy-CAM_DEAD : dy<-CAM_DEAD ? dy+CAM_DEAD : 0.f; float t=t_cam_tilt0-d*CAM_GAIN;
+      if(t_cam==1){ int st=(int)(dx/CAM_YAW_STEP);   // whole 128 px steps of horizontal travel (truncated towards 0)
+        while(st>t_cam_steps){ q_push(t_cam_ysign>0 ? BTN_RS_RIGHT : BTN_RS_LEFT,2,4); t_cam_steps++; tm_log2("map yaw",t_cam_ysign,t_cam_steps); }
+        while(st<t_cam_steps){ q_push(t_cam_ysign>0 ? BTN_RS_LEFT : BTN_RS_RIGHT,2,4); t_cam_steps--; tm_log2("map yaw",-t_cam_ysign,t_cam_steps); }
+        float d= dy>CAM_DEAD ? dy-CAM_DEAD : dy<-CAM_DEAD ? dy+CAM_DEAD : 0.f; float t=t_cam_tilt0-d*CAM_GAIN;
         float lo=((float(*)(u64))M(0x29aa1d0))(0), hi=((float(*)(u64))M(0x29aa270))(0); if(hi>lo){ if(t<lo) t=lo; if(t>hi) t=hi; }
         t_cam_target=t; return; }
       if(t_cam==2){ hub_drag(x,y); return; } }
