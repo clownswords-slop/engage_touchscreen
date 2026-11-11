@@ -88,6 +88,21 @@ static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
   return 1; }
+// Units list "< Status >" arrows: switch to the previous / next tab and put the cursor on its first column (the Str of Basic
+// Stats ...). The sort menu's transform holds SortList / Sort0, Sort1, Sort2 (one per tab, the active one shown; their children are
+// the columns, numbered on across the tabs in m_sortTitle). Enter sort mode as troop_header_tap does, then IncSort / DecSort to
+// the target column (the game switches the tab with the column).
+static int troop_page_arrow(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(!s) return 0;
+  int pa=menu_page_arrow(m,x,y); if(!pa) return 0;
+  u64 sl=tr_child_named(u_transform(s),"SortList"); if(!sl) return 0; int np=u_child_count(sl); if(np<1 || np>8) return 0;
+  int first[8], cur=-1, acc=0;
+  for(int k=0;k<np;k++){ u64 pg=u_child(sl,k); first[k]=acc; acc+=u_child_count(pg); if(uobj_ok(pg) && u_active(u_gameobject(pg))) cur=k; }
+  if(cur<0) return 0; int tp=(cur+pa+np)%np, t=first[tp]; tm_log2("troop tab",tp,t);
+  if(!RD8(m+0xc4)){ if(RDS32(m+0xa0)!=0) menu_select(m,0);
+    ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEUP))(m,1,il_vmi(m,TL_MOVEUP)); if(!RD8(m+0xc4)) return 1; }
+  for(int g=0;g<24;g++){ int c=RDS32(s+0x50); if(c==t) break;
+    ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
+  return 1; }
 // Index tabs: a row of category icons where icon i = category i, the current index read from the menu / its content; a tap on an
 // icon calls the menu's own KeyRight / KeyLeft (vtable 43 / 42) until the index matches (instant, no d-pad steps); "<" ">"
 // arrows under the content step once. Storehouse (MaterialListMenu: content +0xf8 List<Image> m_CategoryIconList, +0xe8
@@ -173,14 +188,61 @@ static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
     if(sl) ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); else press(k_menu_pairs[j].btn);
     g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
   return 0; }
+// Lists where the first tap only selects (a second tap on the selected row confirms): unit selection and save slots, as the
+// user asked; everything else confirms on the first tap.
+static int str_has(const char*s,const char*t){ for(;*s;s++){ const char*a=s,*b=t; while(*a && *b && *a==*b){ a++; b++; } if(!*b) return 1; } return 0; }
+static int menu_two_tap(u64 m){ const char*c=il_cname(m);
+  if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
+  return str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu"); }
+// ---- battle map Additional Info (ZR held: MapNavigationSequence with the tab row MapNavigationStatusMenu and the Minimap list
+// MapNavigationMiniMapMenu, both BasicMenus) ----
+// A tap on a tab / Minimap row selects it at once (no A: the screen shows them live); the "^" "v" arrows beside the Minimap list
+// step that list only (its MoveUp / MoveDown, vtable 44 / 45), the "<" ">" arrows by the tabs press d-pad Left / Right (the
+// tabs' own keys). Arrows: active objects named Arrow* up to 3 levels above the list's first row, 5 below; the side of the list
+// they sit on gives the direction. A tap anywhere else releases a latched ZR (keyhelp.h), which closes the screen.
+static int il_str_prefix(u64 s,const char*a){ if(!s || !mem_ok(s)) return 0; int n=RDS32(s+0x10), i=0;
+  for(;a[i];i++){ if(i>=n || *(volatile u16*)(s+0x14+2*i)!=(u16)a[i]) return 0; } return 1; }
+static int arrow_scan(u64 tr,int d,float x,float y,float*ax,float*ay){ int n=u_child_count(tr); if(n>40) n=40;
+  for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
+    if(il_str_prefix(u_name(c),"Arrow")){ float x0,y0,x1,y1; if(tr_box(c,0,&x0,&y0,&x1,&y1)){ float cx=(x0+x1)*0.5f, cy=(y0+y1)*0.5f;
+        if(x>=cx-30.f && x<cx+30.f && y>=cy-30.f && y<cy+30.f){ *ax=cx; *ay=cy; return 1; } } continue; }
+    if(d<5 && arrow_scan(c,d+1,x,y,ax,ay)) return 1; }
+  return 0; }
+// direction of an arrow tapped near menu m: 'U' 'D' 'L' 'R', 0 if none
+static int menu_arrow_dir(u64 m,float x,float y){ u64 it=menu_item(m,0); if(!it || !mem_ok(it)) return 0; u64 c=RD64(it+0x18); if(!uobj_ok(c)) return 0;
+  u64 tr=u_transform(c); for(int k=0;k<3;k++){ u64 p=u_parent(tr); if(!uobj_ok(p)) break; tr=p; }
+  float ax,ay; if(!arrow_scan(tr,0,x,y,&ax,&ay)) return 0; float bx0,by0,bx1,by1; if(!menu_bounds(m,&bx0,&by0,&bx1,&by1)) return 0;
+  // rows stacked (vertical list: the Minimap) -> up / down by the arrow's height against the list's middle; else left / right
+  int vert=1; { float a0,b0,c0,d0,a1,b1,c1,d1; u64 mc=menu_cam(m); if(menu_items(m)>1 && item_box(menu_item(m,0),mc,&a0,&b0,&c0,&d0) && item_box(menu_item(m,1),mc,&a1,&b1,&c1,&d1)){
+      float dx=(a1+c1-a0-c0)*0.5f, dy=(b1+d1-b0-d0)*0.5f; if(dx<0) dx=-dx; if(dy<0) dy=-dy; vert= dy>=dx; } }
+  if(vert) return ay<(by0+by1)*0.5f ? 'U' : 'D';
+  return ax<(bx0+bx1)*0.5f ? 'L' : 'R'; }
+static int nav_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
+  if(!str_eq(cn,"MapNavigationMiniMapMenu") && !str_eq(cn,"MapNavigationStatusMenu")) return 0;
+  static const char* const nm[2]={ "MapNavigationStatusMenu", "MapNavigationMiniMapMenu" };
+  for(int k=0;k<2;k++){ u64 o=proc_find(nm[k]); if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y); if(i<0) continue;
+    tm_log2("nav select",k,i); if(i!=RDS32(o+0xa0)) menu_select(o,i); return 1; }
+  for(int k=0;k<2;k++){ u64 o=proc_find(nm[k]); if(!o || !mem_ok(o)) continue; int d=menu_arrow_dir(o,x,y); if(!d) continue;
+    tm_log2("nav arrow",k,d);
+    if(d=='U' || d=='D'){ int sl= d=='U' ? 44 : 45; ((void(*)(u64,int,u64))il_vfn(o,sl))(o,1,il_vmi(o,sl)); }
+    else press(d=='L' ? BTN_L : BTN_R);
+    return 1; }
+  if(g_latch){ g_latch=0; tm_log2("nav: release ZR",0,0); }
+  return 1; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
   // message-only dialogs ("You've received a special gift!" ItemListYesNoDialog, ...): every row is an invisible DummyMenuItem
   // and the dialog waits for A: a tap anywhere is A
   if(i<0){ int n=menu_items(m), d=0; for(int k=0;k<n && k<16;k++){ u64 it=menu_item(m,k); if(it && str_eq(il_cname(it),"DummyMenuItem")) d++; }
     if(n>0 && d==n){ tm_log2("message dialog: A",n,0); press(BTN_A); return 1; } }
+  if(nav_tap(m,x,y)) return 1;
+  // battle map unit -> Items (ItemMenu): the "In-Use Stats" panel and the text under the rows swap with X (no prompt shown):
+  // a tap there (the rows' width, below the last row) is X
+  if(i<0 && str_eq(il_cname(m),"ItemMenu")){ float bx0,by0,bx1,by1;
+    if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && x>=bx0-10.f && x<bx1+40.f && y>by1){ tm_log2("item panel: X",0,0); press(BTN_X); return 1; } }
   int troop=str_eq(il_cname(m),"TroopListMenu");
   if(troop && i<0 && troop_header_tap(m,x,y)) return 1;
+  if(troop && i<0 && troop_page_arrow(m,x,y)) return 1;
   if(i<0 && index_tabs_tap(m,x,y)) return 1;
   if(i<0 && kind_tabs_tap(m,x,y)) return 1;
   if(i<0 && menu_pair_tap(m,x,y)) return 1;
@@ -188,17 +250,21 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }
-  // a tap well away from the menu (outside its visible items + MENU_OUT px) is B: many menus show no Back prompt
-  if(i<0){ float bx0,by0,bx1,by1; if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && (x<bx0-MENU_OUT || x>bx1+MENU_OUT || y<by0-MENU_OUT || y>by1+MENU_OUT)){ tm_log2("menu outside: B",0,0); press(BTN_B); return 1; } return 0; }
+  // a tap off the items does nothing (taps are A, never B, unless a screen says otherwise; the user's rule)
+  if(i<0) return 1;
   int ar=item_arrow(menu_item(m,i),x,y);
   if(ar){ if(i!=RDS32(m+0xa0)) menu_select(m,i); press(ar<0?BTN_L:BTN_R); return 1; }   // value arrow: select the row, step its value
-  if(i==RDS32(m+0xa0)) press(BTN_A); else menu_select(m,i);
+  if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
+  menu_select(m,i); if(!menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
   return 1; }
 
 static void menu_init(void){ o_tickinput=hook_install(M(BM_TICKINPUT),(u64)&hk_tickinput);
   Buf b={0}; bstr(&b,"[engagetouch] hook TickInput "); bhex(&b,o_tickinput); bstr(&b," err "); bhex(&b,g_hook_err); bstr(&b," rc "); bhex(&b,g_patch_rc); bflush(&b); }
+static int g_latch_gone;
 static void menu_frame(void){ g_menu=g_menu_tick; g_menu_tick=0;
-  if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_idx!=RDS32(g_menu+0xa0)) menu_select(g_menu,g_pend_idx); g_pend_menu=0; } else if(--g_pend_ttl<=0) g_pend_menu=0; } }
+  if(g_latch){ if(proc_find("MapNavigationSequence")) g_latch_gone=0; else if(++g_latch_gone>45){ g_latch=0; g_latch_gone=0; } }   // the screen never came or is gone: let go
+  if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_idx!=RDS32(g_menu+0xa0)) menu_select(g_menu,g_pend_idx);
+      if(!menu_two_tap(g_menu)) press(BTN_A); g_pend_menu=0; } else if(--g_pend_ttl<=0) g_pend_menu=0; } }
 
 #ifdef TM_DEBUG
 static void dbg_ocls(const char*l,u64 o){ os(l); ox(o); if(o&&mem_ok(o)){ oc(' '); os(il_cname(o)); os(uobj_ok(o)?" live":" dead"); } oc('\n'); }

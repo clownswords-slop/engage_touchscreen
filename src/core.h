@@ -21,6 +21,12 @@ static u64 g_main;           // main module base (.text start)
 #endif
 static u64 g_poll;           // input frames (one per frame of the game's input update)
 static int g_touch_mode;     // 1 after a touch, 0 after real pad input
+// Settings -> Touchscreen switch options (opts.h): [0] Tap To Move (0 Normal, 1 Instant, 2 Instant when safe), [1] Tap To Skip
+// (Battle) (0 Off: drags move the combat camera, 1 On: a tap skips the animation)
+#define OPT_N 2
+static int g_opt[OPT_N];
+#define g_tap_move g_opt[0]
+#define g_tap_skip g_opt[1]
 
 #define RD8(a) (*(volatile u8*)(a))
 #define RD32(a) (*(volatile u32*)(a))
@@ -69,6 +75,9 @@ static u64 q_tick(void){
   if(q_phase==2){ if(q_cnt-->0) return 0; q_phase=0; qh=(qh+1)&63; return q_tick(); }
   return 0; }
 static void press(u64 b){ q_push(b,2,3); }
+// a button held across frames until released (ZR Additional Info on the battle map, latched by a tap on its prompt): ORed into
+// every pad read while set
+static u64 g_latch;
 // ---- right-stick queue (camera): each push holds (x, y) for `hold` frames, then centres the stick for `gap` frames ----
 typedef struct { s32 x, y; int hold, gap; } RStep;
 static RStep rq[16]; static int rqh, rqt, rq_phase, rq_cnt; static s32 g_rs_x, g_rs_y;

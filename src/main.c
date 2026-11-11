@@ -98,7 +98,7 @@ static void frame_tick(void){
 #endif
   if(GetTouchN){ int n=GetTouchN(tsh,16); if(n>16) n=16;
     for(int i=n-1;i>=0;i--) if(tsh[i].sampling>last_samp){ last_samp=tsh[i].sampling; touch_update(&tsh[i]); } }
-  g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
+  cursor_pend_frame(); details_frame(); g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
 #ifdef TM_DEBUG
   g_inject|=cur_inject_dbg;
 #endif
@@ -138,7 +138,7 @@ static void process(NpadState*s,int n,u32 id,int h,u64 lr){
   if(id!=g_primary) return;
   if(!g_pad_hooked && h!=H_LEFT && h!=H_RIGHT){ static int last_h=-1; if(last_h<0) last_h=h; if(h==last_h) frame_tick(); }   // fallback without the Pad hook
   if(s[0].buttons&0xffffu) g_touch_mode=0;   // real pad input brings the cursor back
-  for(int i=0;i<n;i++){ s[i].buttons|=g_inject; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } if(g_ls_x||g_ls_y){ s[i].l.x=g_ls_x; s[i].l.y=g_ls_y; } }
+  for(int i=0;i<n;i++){ s[i].buttons|=g_inject|g_latch; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } if(g_ls_x||g_ls_y){ s[i].l.x=g_ls_x; s[i].l.y=g_ls_y; } }
 #ifdef TM_DEBUG
   if(dbg_ls_n>0){ for(int i=0;i<n;i++){ s[i].l.x=dbg_ls_x; s[i].l.y=dbg_ls_y; } }
 #endif

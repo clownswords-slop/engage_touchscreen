@@ -42,6 +42,9 @@ static float kh_icon_mid(u64 otr,float dflt){ int n=u_child_count(otr); if(n>12)
     float a,b,e,f; if(tr_box(c,0,&a,&b,&e,&f) && e>a) return (a+e)*0.5f; }
   return dflt; }
 static int g_kh_alpha_only=1;   // 1: visibility = CanvasGroup alpha only (verified: hidden title bar = 0); 0: also the TitleBar header flags
+static u64 proc_find(const char*n);   // screens.h
+// battle map free cursor: the ZR prompt is "Additional Info", shown while ZR is held: a tap latches it (released by a tap off it)
+static int kh_latch_ok(void){ return proc_find("MapSequenceHuman") && !g_menu; }
 static int kh_tap(float x,float y){ kh_sweep(); int tb=-1;
   for(int i=g_kh_n-1;i>=0;i--){ u64 c=g_kh[i]; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
     if(!g_kh_alpha_only && str_eq(il_cname(c),"KeyHelpTitleBarController")){ if(tb<0) tb=titlebar_shown(); if(!tb) continue; }
@@ -52,7 +55,9 @@ static int kh_tap(float x,float y){ kh_sweep(); int tb=-1;
       u64 nm=u_name(o);
       for(u32 j=0;j<sizeof(k_kh)/sizeof(k_kh[0]);j++) if(il_str_eq(nm,k_kh[j].n)){
         float mid=kh_icon_mid(otr,(x0+x1)*0.5f);
-        u64 b= (k_kh[j].b && x>=mid) ? k_kh[j].b : k_kh[j].a; tm_log2("keyhelp",k,(s64)b); press(b); return 1; }
+        u64 b= (k_kh[j].b && x>=mid) ? k_kh[j].b : k_kh[j].a; tm_log2("keyhelp",k,(s64)b);
+        if(b==BTN_ZR && kh_latch_ok()){ g_latch=BTN_ZR; tm_log2("latch ZR",0,0); return 1; }   // ZR Additional Info: held
+        press(b); return 1; }
       return 1; } }   // a prompt without a button (stick): swallow
   return 0; }
 // any prompt showing (an active, visible help object of an active controller)

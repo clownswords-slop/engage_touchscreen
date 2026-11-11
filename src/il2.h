@@ -65,6 +65,9 @@ static int is_rect_tr(u64 tr){ return str_eq(il_cname(tr),"RectTransform"); }
 // transform of a GameObject or Component
 static u64 any_transform(u64 o){ if(!uobj_ok(o)) return 0; const char*n=il_cname(o);
   if(str_eq(n,"GameObject")) return u_go_transform(o); if(str_eq(n,"Transform")||str_eq(n,"RectTransform")) return o; return u_transform(o); }
+// a child of tr named n (0 if none)
+static u64 tr_child_named(u64 tr,const char*n){ int k=u_child_count(tr); if(k>40) k=40;
+  for(int i=0;i<k;i++){ u64 c=u_child(tr,i); if(uobj_ok(c) && il_str_eq(u_name(c),n)) return c; } return 0; }
 // 720p box of a RectTransform (no active check)
 static int tr_box(u64 tr,u64 cam,float*x0,float*y0,float*x1,float*y1){ if(!uobj_ok(tr) || !is_rect_tr(tr)) return 0; Rect4 r=u_rect(tr);
   V3 a={r.x,r.y,0.f}, b={r.x+r.w,r.y+r.h,0.f}; a=u_tpoint(tr,a); b=u_tpoint(tr,b); float ax,ay,bx,by; to720(cam,a,&ax,&ay); to720(cam,b,&bx,&by);

@@ -39,7 +39,7 @@ static u64 hubcam(void){ u64 c=g_hubcam; if(!c || g_poll-g_hubcam_poll>4 || !uob
 // the "Name ... (A) Talk" label over the interactable in reach (App.HubAccessHelp, +0x18 m_NowAccess; Update 0x216f4c0 records it)
 static u64 g_hubhelp, o_hubhelp_update, g_hubhelp_poll;
 static void hk_hubhelp_update(u64 self,u64 mi){ g_hubhelp=self; g_hubhelp_poll=g_poll; ((void(*)(u64,u64))o_hubhelp_update)(self,mi); }
-static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode);
+static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode); o_tickmove=hook_install(M(0x29c07b0),(u64)&hk_tickmove);
   o_hubcam_update=hook_install(M(0x2d7a2b0),(u64)&hk_hubcam_update);
   o_hubhelp_update=hook_install(M(0x216f4c0),(u64)&hk_hubhelp_update); }
 static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M(0x265baa0))(h,2,0); }
@@ -48,15 +48,24 @@ static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M
 #define TILE 5.f
 static float g_tile_off=0.5f;
 static int ifloor(float f){ int i=(int)f; return (f<(float)i) ? i-1 : i; }
-static int map_tap(u64 h,float x,float y){ V3 w; if(!map_unproject(x,y,&w)) return 0; human_indirect(h);
+// The unit bar at the bottom of the battle map (App.UnitInfo, a ProcInst: +0x80 m_Windows, UnitInfo.Window[]: +0x40 m_IsVisible,
+// +0x30 m_UnitInfoWindowSimple (UnitInfoWindow: +0x18 m_GameObject)): the 720p box of its visible window that holds (x, y).
+// Its root spans the screen, so the box is the union of the pieces under it (kh_box_add, as for the hub labels).
+static int unitbar_hit(float x,float y){ u64 p=proc_find("UnitInfo"); if(!p || !mem_ok(p)) return 0; u64 arr=RD64(p+0x80);
+  if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>4) n=4;
+  for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd) || !RD8(wd+0x40)) continue; u64 uw=RD64(wd+0x30);
+    if(!uw || !mem_ok(uw)) continue; u64 go=RD64(uw+0x18); if(!uobj_ok(go) || !u_active(go)) continue;
+    float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_go_transform(go),0,&x0,&y0,&x1,&y1);
+    if(x1>x0 && x>=x0 && x<x1 && y>=y0 && y<y1){ tm_log2("unit bar",(s64)y0,(s64)y1); return 1; } }
+  return 0; }
+static int map_tap(u64 h,float x,float y){ if(unitbar_hit(x,y)){ details_at(x,y,BTN_X); return 1; }   // X Details on the tapped element
+  V3 w; if(!map_unproject(x,y,&w)) return 0; human_indirect(h);
   int cx=cursor_x(), cz=cursor_z(); V3 c=cursor_pos();
   int tx=cx+ifloor((w.x-c.x)/TILE+g_tile_off), tz=cz+ifloor((w.z-c.z)/TILE+g_tile_off); tm_log2("map tile",tx,tz);
   if(tx==cx && tz==cz){ press(BTN_A); return 1; }
   if(!tile_in_play(tx,tz)){ tm_log2("map tile off the play area",tx,tz); return 1; }   // never MapCursor.Set outside it (aborts)
-  cursor_set(tx,tz,0.f);
-  // choosing a destination (label 4 PickCursorTick): the route (= where A moves the unit) only follows the d-pad's own cursor
-  // moves, so rebuild it for the tapped tile: MapSequenceHuman.UpdateRoute(x, z) 0x2662ab0
-  if(proc_label(h)==4) ((void(*)(u64,int,int,u64))M(0x2662ab0))(h,tx,tz,0);
+  cursor_tap_to(tx,tz);   // set inside MapCursor.TickMove: the cursor tick refreshes portrait, terrain, route, danger ... (map.h)
+  if(proc_label(h)==4 && g_tap_move) move_confirm_after(tx,tz,g_tap_move);   // choosing a destination: Tap To Move
   return 1; }
 
 // ---- attack / staff / item target selection (App.MapSequenceTargetSelect) ----
@@ -89,7 +98,8 @@ static int tutorial_tap(float x,float y){
 
 // ---- unit status screen (Chara.UnitInfoSequence, "- Unit Details"): its prompts are + View and X Details, B (back) has none.
 // A tap off the prompts is B; while + View has hidden the whole UI (no prompt showing) a tap is + (brings it back).
-static int unitinfo_tap(void){ press(kh_shown() ? BTN_B : BTN_PLUS); return 1; }
+// a tap opens X Details on the element there (it never closes the screen); while + View hid the UI, a tap brings it back
+static int unitinfo_tap(float x,float y){ if(!kh_shown()){ press(BTN_PLUS); return 1; } details_at(x,y,BTN_X); return 1; }
 
 // ---- attack / staff forecast window (App.MapBattleInfoRoot): +0x20 m_CommandRoot = the "(A) Attack" button,
 // +0x28 m_CommandSubRoot (a second command, shown when Engage is possible). Setup (0x1f0b100) records the live window.
@@ -106,17 +116,21 @@ static int weapon_arrow_find(u64 tr,int d,float x,float y){ int n=u_child_count(
     if(s){ float x0,y0,x1,y1; if(kh_box(c,&x0,&y0,&x1,&y1) && ui_alpha(c)>=0.05f && x>=x0-8.f && x<x1+8.f && y>=y0-10.f && y<y1+10.f) return s; continue; }
     if(d<5){ int r=weapon_arrow_find(c,d+1,x,y); if(r) return r; } }
   return 0; }
+static u64 command_btn(u64 ctr,float x,float y);
 static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq(il_cname(r),"MapBattleInfoRoot")) return 0;
   u64 go=u_gameobject(r); if(!uobj_ok(go) || !u_active(go)) return 0;
   if(go_hit(RD64(r+0x20),x,y,8.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
   { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
       if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
-  if(go_hit(RD64(r+0x28),x,y,8.f)){ tm_log2("forecast subcommand",0,0); return 1; }
+  // the second command beside it (m_CommandSubRoot, e.g. Engage Attack when Engage is possible): the button its children name
+  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,8.f)){ u64 b=command_btn(u_go_transform(sub),x,y); tm_log2("forecast subcommand",(s64)b,0);
+      if(b) press(b); return 1; } }
+  // anything else on the two info panels (m_InfoLeft / m_InfoRight +0x40 / +0x48): X Details on that element
+  for(int k=0;k<2;k++){ u64 pg=RD64(r+0x40+8ul*k); if(!uobj_ok(pg) || !u_active(pg)) continue;
+    float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_go_transform(pg),0,&x0,&y0,&x1,&y1);
+    if(x1>x0 && x>=x0 && x<x1 && y>=y0 && y<y1){ details_at(x,y,BTN_X); return 1; } }
   return 0; }
 
-// a child of tr named n (0 if none)
-static u64 tr_child_named(u64 tr,const char*n){ int k=u_child_count(tr); if(k>40) k=40;
-  for(int i=0;i<k;i++){ u64 c=u_child(tr,i); if(uobj_ok(c) && il_str_eq(u_name(c),n)) return c; } return 0; }
 // a "Command" button object (children named after their button: A, B, ...): the button of its active child, 0 if missed
 static u64 command_btn(u64 ctr,float x,float y){ if(!uobj_ok(ctr)) return 0; u64 go=u_gameobject(ctr); if(!uobj_ok(go) || !u_active(go)) return 0;
   float x0,y0,x1,y1; if(!tr_box(ctr,0,&x0,&y0,&x1,&y1) || x<x0-8.f || x>=x1+8.f || y<y0-8.f || y>=y1+8.f) return 0;
@@ -128,7 +142,7 @@ static u64 command_btn(u64 ctr,float x,float y){ if(!uobj_ok(ctr)) return 0; u64
 // is its child "Command"; a tap on it presses that button, anywhere else is B (cancel: the screen shows no Back prompt)
 static int engage_confirm_tap(u64 p,float x,float y){ u64 go=RD64(p+0x78); if(!uobj_ok(go)) return 1;
   u64 b=command_btn(tr_child_named(u_go_transform(go),"Command"),x,y); tm_log2("engage confirm",(s64)b,0);
-  press(b ? b : BTN_B); return 1; }
+  if(b) press(b); return 1; }
 
 // ---- hub / explore free roam: a tap on the "(A) Talk" / access label over the interactable in reach = A (it is that prompt) ----
 static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_poll>4 || !uobj_ok(h)) return 1;
@@ -138,14 +152,22 @@ static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_
   u64 tr=u_transform(h); if(ui_alpha(tr)<0.05f) return 1; float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(tr,0,&x0,&y0,&x1,&y1);
   if(x1<=x0 || y1<=y0) return 1;
   tm_log2("hub access box x",(s64)x0,(s64)x1); tm_log2("hub access box y",(s64)y0,(s64)y1);
-  if(x>=x0-10.f && x<x1+10.f && y>=y0-10.f && y<y1+10.f){ tm_log2("hub access",1,0); press(BTN_A); }
+  if(x>=x0-10.f && x<x1+10.f && y>=y0-10.f && y<y1+10.f){ tm_log2("hub access",1,0); press(BTN_A); return 1; }
+  // or on the interactable's model (a person, an object): its spot projected through the hub camera (+0x60 m_Camera) as a
+  // standing figure, feet at the spot, head 1.8 units up, half as wide as tall (at least 40 px), a little slack around it
+  u64 hc=hubcam(); u64 cam= hc ? RD64(hc+0x60) : 0; if(!uobj_ok(cam)) return 1;
+  V3 f=((V3(*)(u64,u64))M(0x378f890))(u_transform(acc),0), hd=f; hd.y+=1.8f;
+  if(u_w2s(cam,f).z<=0.f) return 1;   // behind the camera
+  float fx,fy,hx,hy; to720(cam,f,&fx,&fy); to720(cam,hd,&hx,&hy); float mh=fy-hy; if(mh<0.f) mh=-mh; float w=mh*0.25f; if(w<20.f) w=20.f;
+  float top= hy<fy ? hy : fy, bot= hy<fy ? fy : hy;
+  if(x>=fx-w-8.f && x<fx+w+8.f && y>=top-12.f && y<bot+8.f){ tm_log2("hub access model",(s64)fx,(s64)fy); press(BTN_A); }
   return 1; }
 
 // read-only pages without prompts that B closes ("Resources Found in Firene" from Donations -> X Details): tap = B
 // also the world map's whole-continent view (ZR zoomed all the way out: GmapSequence+GmapWholeMapSequence, no prompts; B returns)
 static const char* const k_view_pages[]={ "InvestmentNationDataSequence", "GmapWholeMapSequence" };
 static int view_page_tap(void){ for(u32 j=0;j<sizeof(k_view_pages)/sizeof(k_view_pages[0]);j++){ u64 p=proc_find(k_view_pages[j]);
-    if(p && !proc_sus(p)){ tm_log2("view page: B",(s64)j,0); press(BTN_B); return 1; } } return 0; }
+    if(p && !proc_sus(p)){ tm_log2("view page",(s64)j,0); return 1; } } return 0; }   // was B; taps are never B now
 
 // ---- world map (App.GmapSequence): a tap on a location node walks Alear there along the paths (StartMoveTargetSpot 0x2b3f880,
 // what L "To Next Chapter" uses with the newest node); a tap on the node she stands on (+0x88 m_NowSpot) is A (enter / talk).
@@ -227,7 +249,7 @@ static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c ||
   float sp=(bx-ax)*(bx-ax)+(by-ay)*(by-ay); if(nx<2) sp=80.f*80.f;
   if(best<0 || bd>sp*0.36f){   // not on a cell (within 0.6 of the cell spacing): well away from the palette (no Back prompt) = B
     float s=f_sqrt(sp), lx=ax-s, rx=ax+s*(float)nx, ty=ay-s, by2=ay+s*(float)ny;
-    if(x<lx || x>rx || y<ty || y>by2){ tm_log2("colour outside: B",0,0); press(BTN_B); return 1; } return 0; }
+    if(x<lx || x>rx || y<ty || y>by2) return 1; return 0; }   // off the palette: nothing (taps are never B)
   int cur=RDS32(c+0x2c)*nx+RDS32(c+0x28);
   if(best==cur){ tm_log2("colour: A",best,0); press(BTN_A); return 1; }
   ((void(*)(u64,int,u64))M(0x1e53440))(c,best,0); ((void(*)(u64,u64))M(0x2032070))(p,0); WR32(p+0x80,0x1000);
@@ -240,7 +262,7 @@ static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c ||
 // A tap on the card moves the cursor straight to the point; on the cursor = A; off the card = B (no Back prompt).
 static int stamp_tap(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78); if(!uobj_ok(sr) || !uobj_ok(cr)) return 1;
   float cx0,cy0,cx1,cy1; int on_card= tr_box(u_transform(cr),0,&cx0,&cy0,&cx1,&cy1) && x>=cx0 && x<cx1 && y>=cy0 && y<cy1;
-  if(!on_card){ tm_log2("stamps outside: B",0,0); press(BTN_B); return 1; }
+  if(!on_card) return 1;   // off the card: nothing (taps are never B)
   u64 st=RD64(sr+0x30); float x0,y0,x1,y1; if(!uobj_ok(st) || !tr_box(st,0,&x0,&y0,&x1,&y1)) return 1;
   float sx=(x0+x1)*0.5f, sy=(y0+y1)*0.5f, dx=x-sx, dy=y-sy;
   if(dx*dx+dy*dy<28.f*28.f){ tm_log2("stamp: A",0,0); press(BTN_A); return 1; }
@@ -258,10 +280,10 @@ static int screen_tap(float x,float y){ u64 p;
   // (+0x78 m_Root ProfileCardRoot, "Card" ~66,86 - 1213,673) = A, outside it = B
   if((p=proc_find("ProfileCardMyCardMenu")) && !proc_sus(p)){ u64 r=RD64(p+0x78); float x0,y0,x1,y1;
     int in= uobj_ok(r) && tr_box(u_transform(r),0,&x0,&y0,&x1,&y1) && x>=x0 && x<x1 && y>=y0 && y<y1;
-    tm_log2("my card",in,0); press(in ? BTN_A : BTN_B); return 1; }
-  if((p=proc_find("AmiiboMenu")) && !proc_sus(p)){ tm_log2("amiibo scan: B",0,0); press(BTN_B); return 1; }   // "Please scan your amiibo." (scanning is the emulator's own menu): a tap cancels
+    tm_log2("my card",in,0); if(in) press(BTN_A); return 1; }
+  if((p=proc_find("AmiiboMenu")) && !proc_sus(p)) return 1;   // "Please scan your amiibo." (scanning is the emulator's own menu): a tap cancels
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
-  if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap();
+  if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
   if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
@@ -270,7 +292,9 @@ static int screen_tap(float x,float y){ u64 p;
      || proc_find("GameMessage") || proc_find("DemoTelop")){   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
-  if((p=proc_find("CombatSequence"))){ press(BTN_PLUS); return 1; }   // Combat.CombatInput.Update: B or + skips the animation
+  // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
+  // Off (default) = taps do nothing and drags move the camera (touch.h, the right stick that CombatInput reads into CameraPan)
+  if((p=proc_find("CombatSequence"))){ if(g_tap_skip) press(BTN_PLUS); return 1; }
   if((p=proc_find("TutorialSequence")) && !proc_sus(p)) return tutorial_tap(x,y);
   if((p=proc_find("PlayerGenderSelectMenuSequence")) && !proc_sus(p)) return gender_tap(p,x,y);
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }

@@ -41,17 +41,28 @@ static float cam_drive(float e,float full){ if(e>-0.5f && e<0.5f) return 0.f; fl
   if(s>0.f && s<0.45f) s=0.45f; if(s<0.f && s>-0.45f) s=-0.45f; return s; }
 
 // ---- free-roam camera (explore fields / Somniel, App.HubCamera: hubcam() in screens.h): a drag turns it, the world follows the
-// finger (as in Three Houses): drag right = turn left. Gains times Settings -> Touchscreen -> Horizontal / Vertical Camera
-// Sensitivity (cam_sens_gain, opts.h). The right stick turns get_AngleY (0x2d792d0) about 3.6 deg a frame at full
-// (x > 0 = AngleY up) and tilts m_AngleX (+0x80, InterpolatorFloat.get_Value 0x2794bc0). Targets: yaw 0.2 deg / px, pitch
-// 0.15 deg / px (drag down = camera lower), driven like the map tilt; where the game clamps the pitch the target is re-anchored so a reversal answers at once.
-#define HUB_YAW_GAIN 0.2f
-#define HUB_PIT_GAIN 0.15f
+// finger (as in Three Houses): drag right = turn left, drag down = camera lower. Like Three Houses the drag writes the camera's own
+// eased targets each frame (no right stick, so the game's stick speed doesn't matter and nothing overshoots while the finger
+// rests): HubCamera +0x98 m_AngleY (InterpolatorRotation, degrees) and +0x80 m_AngleX (InterpolatorFloat) through their
+// Set(value, time) (vtable entry at klass+0x198, what SetAngleY / SetAngleX 0x2d7dcb0 / 0x2d7dcd0 call with time 0), eased over
+// HUB_EASE s. Rates per px as in Three Houses (0.003 / 0.0045 rad), times Settings -> Touchscreen -> Horizontal / Vertical
+// Camera Sensitivity (cam_sens_gain, opts.h: 1.5 * (v+1) / 16, the FE3H slider curve).
+#define HUB_YAW_DPX 0.089f    // measured: the FE3H rate (0.1719) turned this camera ~1.9x as far per px
+#define HUB_PIT_DPX 0.1336f
+#define HUB_EASE 0.15f
 #define HUB_DEAD 16.f
-static float t_hub_yaw0, t_hub_pit0, t_hub_yawt, t_hub_pitt, t_hub_plast; static int t_hub_pstuck; static s32 g_cam_rs_x;
-static int g_hub_pitch_sign=-1;  // stick y > 0 lowers AngleX (measured: up -> -54, down -> +54 = high, looking down)
+#define HUB_PIT_MIN (-54.f)
+#define HUB_PIT_MAX 54.f
+static float t_hub_yawt, t_hub_pitt, t_hlx, t_hly; static s32 g_cam_rs_x;
 static int hub_angles(float*yaw,float*pit){ u64 c=hubcam(); if(!c) return 0; *yaw=((float(*)(u64,u64))M(0x2d792d0))(c,0);
   u64 ax=RD64(c+0x80); if(!ax || !mem_ok(ax)) return 0; *pit=((float(*)(u64,u64))M(0x2794bc0))(ax,0); return 1; }
+static void interp_set(u64 ip,float v,float t){ if(!ip || !mem_ok(ip)) return; u64 k=RD64(ip); if(!k || !mem_ok(k)) return;
+  ((int(*)(u64,float,float,u64))RD64(k+0x198))(ip,v,t,RD64(k+0x1a0)); }
+static void hub_drag(float x,float y){ u64 c=hubcam(); if(!c) return; float dx=x-t_hlx, dy=y-t_hly; t_hlx=x; t_hly=y;
+  if(dx==0.f && dy==0.f) return;
+  t_hub_yawt-=dx*HUB_YAW_DPX*cam_sens_gain(0); t_hub_pitt-=dy*HUB_PIT_DPX*cam_sens_gain(1);
+  if(t_hub_pitt<HUB_PIT_MIN) t_hub_pitt=HUB_PIT_MIN; if(t_hub_pitt>HUB_PIT_MAX) t_hub_pitt=HUB_PIT_MAX;
+  if(dx!=0.f) interp_set(RD64(c+0x98),t_hub_yawt,HUB_EASE); if(dy!=0.f) interp_set(RD64(c+0x80),t_hub_pitt,HUB_EASE); }
 static int hub_cam_ok(void){ return !g_menu && !help_active() && hubcam() && proc_find("HubSequence"); }
 
 static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
@@ -60,12 +71,7 @@ static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
   if(t_cam==4){ float sx=t_sdx*STICK_DRAG_GAIN, sy=t_sdy*STICK_DRAG_GAIN; t_sdx=t_sdy=0.f;   // Sommie colour screen: "Control Camera"
     if(sx>1.f) sx=1.f; if(sx<-1.f) sx=-1.f; if(sy>1.f) sy=1.f; if(sy<-1.f) sy=-1.f;
     g_cam_rs_x=(s32)(-sx*32000.f); g_cam_rs_y=(s32)(sy*32000.f); return; }   // x: the view follows the finger
-  float yaw,pit; if(!hub_angles(&yaw,&pit)) return;
-  float ey=t_hub_yawt-yaw; while(ey>180.f) ey-=360.f; while(ey<-180.f) ey+=360.f;
-  g_cam_rs_x=(s32)(cam_drive(ey,12.f)*32000.f);
-  float ep=t_hub_pitt-pit; float sp=cam_drive(ep,6.f);
-  if(sp!=0.f){ float mv=pit-t_hub_plast; if(mv<0.02f && mv>-0.02f){ if(++t_hub_pstuck>=6){ t_hub_pit0+=pit-t_hub_pitt; t_hub_pitt=pit; sp=0.f; t_hub_pstuck=0; } } else t_hub_pstuck=0; }
-  t_hub_plast=pit; g_cam_rs_y=(s32)(sp*(float)g_hub_pitch_sign*32000.f); }
+  /* t_cam 2 (free roam): touch_update writes the camera targets itself (hub_drag) */ }
 
 static void touch_update(TouchScreenState1*ts){
   if(ts->count>0){
@@ -77,23 +83,25 @@ static void touch_update(TouchScreenState1*ts){
     if(!g_menu){ float dx=x-t_x0, dy=y-t_y0;
       if(!t_cam && (dy>CAM_DEAD || dy<-CAM_DEAD) && dy*dy>dx*dx && map_cam_ok() && cam_tilt(&t_cam_tilt0)){
         t_cam=1; t_cam_target=t_cam_tilt0; tm_log2("map camera",(s64)t_cam_tilt0,0); }
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yaw0,&t_hub_pit0)){
-        t_cam=2; t_hub_plast=t_hub_pit0; t_hub_yaw0+=dx*HUB_YAW_GAIN*cam_sens_gain(0); t_hub_pit0+=dy*HUB_PIT_GAIN*cam_sens_gain(1); t_hub_pstuck=0; tm_log2("hub camera",(s64)t_hub_yaw0,(s64)t_hub_pit0); }
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && proc_find("MascotColorChangeMenu")){ t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("sommie camera",0,0); }
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yawt,&t_hub_pitt)){
+        t_cam=2; t_hlx=t_x0; t_hly=t_y0; tm_log2("hub camera",(s64)t_hub_yawt,(s64)t_hub_pitt); }
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence"))){
+        t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
       if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
       if(t_cam==1){ float d= dy>CAM_DEAD ? dy-CAM_DEAD : dy<-CAM_DEAD ? dy+CAM_DEAD : 0.f; float t=t_cam_tilt0-d*CAM_GAIN;
         float lo=((float(*)(u64))M(0x29aa1d0))(0), hi=((float(*)(u64))M(0x29aa270))(0); if(hi>lo){ if(t<lo) t=lo; if(t>hi) t=hi; }
         t_cam_target=t; return; }
-      if(t_cam==2){ t_hub_yawt=t_hub_yaw0-dx*HUB_YAW_GAIN*cam_sens_gain(0); t_hub_pitt=t_hub_pit0-dy*HUB_PIT_GAIN*cam_sens_gain(1); return; } }
-    // in a menu, a drag scrolls: one d-pad step per SWIPE_Y (rows) / SWIPE_X (columns) of travel
+      if(t_cam==2){ hub_drag(x,y); return; } }
+    // in a menu, a drag scrolls: one d-pad step per SWIPE_Y (rows) / SWIPE_X (columns) of travel, in the finger's direction
+    // (drag down = cursor down, drag right = right; the user found the content-follows-finger direction inverted)
     // the steps stop at the first / last row instead of wrapping around (t_pred: the row the queued steps will reach)
     if(g_menu){ float dx=x-t_sx, dy=y-t_sy; if(!t_swiped) t_pred=RDS32(g_menu+0xa0); int n=menu_items(g_menu);
-      if(dy<=-SWIPE_Y){ if(t_pred<n-1){ q_push(BTN_D,1,1); t_pred++; } t_sy-=SWIPE_Y; t_swiped=1; }        // finger up: next rows
-      else if(dy>=SWIPE_Y){ if(t_pred>0){ q_push(BTN_U,1,1); t_pred--; } t_sy+=SWIPE_Y; t_swiped=1; }
-      else if(dx<=-SWIPE_X){ q_push(BTN_R,1,1); t_sx-=SWIPE_X; t_swiped=1; }
-      else if(dx>=SWIPE_X){ q_push(BTN_L,1,1); t_sx+=SWIPE_X; t_swiped=1; } }
+      if(dy>=SWIPE_Y){ if(t_pred<n-1){ q_push(BTN_D,1,1); t_pred++; } t_sy+=SWIPE_Y; t_swiped=1; }         // finger down: next rows
+      else if(dy<=-SWIPE_Y){ if(t_pred>0){ q_push(BTN_U,1,1); t_pred--; } t_sy-=SWIPE_Y; t_swiped=1; }
+      else if(dx>=SWIPE_X){ q_push(BTN_R,1,1); t_sx+=SWIPE_X; t_swiped=1; }
+      else if(dx<=-SWIPE_X){ q_push(BTN_L,1,1); t_sx-=SWIPE_X; t_swiped=1; } }
   } else if(t_down){
     t_down=0;
     if(t_cam){ t_cam=0; g_cam_rs_x=g_cam_rs_y=0; return; }   // a camera drag is not a tap

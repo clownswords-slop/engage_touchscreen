@@ -30,3 +30,30 @@ static int tile_screen(int tx,int tz,float*sx,float*sy){ u64 cam=map_cam(); if(!
 static void dbg_pick(float x,float y){ V3 c=cursor_pos(); os("cursor "); oi(cursor_x()); oc(','); oi(cursor_z()); os(" pos "); of(c.x); oc(' '); of(c.y); oc(' '); of(c.z); oc('\n');
   u64 cam=map_cam(); os("cam "); ox(cam); oc('\n'); V3 w; if(map_unproject(x,y,&w)){ os("hit "); of(w.x); oc(' '); of(w.y); oc(' '); of(w.z); oc('\n'); } else os("miss\n"); }
 #endif
+
+// ---- tapped tiles go through the game's own cursor tick ----
+// MapCursor.TickMove (static (bool isTrigger) 0x29c07b0) is where FreeCursorTick / PickCursorTick ... move the cursor: they read
+// the tile just before it and compare just after it, and on a change refresh everything the d-pad move does (SetActiveUnit =
+// portrait + the enemy's danger area, UpdateTerrainInfo, UpdateDamageForecast, the route, SetCursorMind = red over a target,
+// SetColor, the danger lines). A tapped tile is set inside it (after the original), so those refreshes run for taps too.
+static int g_cur_pend, g_cur_tx, g_cur_tz, g_cur_ttl;
+static u64 o_tickmove;
+static void hk_tickmove(int trig,u64 mi){ ((void(*)(int,u64))o_tickmove)(trig,mi);
+  if(g_cur_pend){ g_cur_pend=0; if(tile_in_play(g_cur_tx,g_cur_tz)) cursor_set(g_cur_tx,g_cur_tz,0.f); } }
+static void cursor_tap_to(int x,int z){ g_cur_tx=x; g_cur_tz=z; g_cur_pend=1; g_cur_ttl=4; }
+// Tap To Move (opts.h g_tap_move) with a unit selected: 1 Instant = A once the cursor is on the tapped tile, 2 Instant when safe
+// = A only when no enemy can attack the tile: MapPanelTarget.IsEnemyAttackRange(unit, x, z) 0x2357fc0 (panel: get_Instance
+// 0x215b50, MethodInfo cell main+0x629dd40), the unit = MapMind.get_Unit 0x1dee2b0 (MapMind: 0x1c3130, cell main+0x6283f50)
+static int g_mv_wait, g_mv_x, g_mv_z, g_mv_mode;
+static u64 cell_inst(u32 cell_off,u32 getter){ u64 cell=RD64(M(cell_off)); if(!cell || !mem_ok(cell)) return 0; u64 mi=RD64(cell);
+  if(!mi || (mi&1) || !mem_ok(mi)) return 0; u64 o=((u64(*)(u64))M(getter))(mi); return o && mem_ok(o) ? o : 0; }
+static int tile_threatened(int x,int z){ u64 pt=cell_inst(0x629dd40,0x215b50), mind=cell_inst(0x6283f50,0x1c3130); if(!pt || !mind) return 1;
+  u64 u=((u64(*)(u64,u64))M(0x1dee2b0))(mind,0); if(!u || !mem_ok(u)) return 1;
+  return ((int(*)(u64,u64,int,int,u64))M(0x2357fc0))(pt,u,x,z,0) & 1; }
+static void move_confirm_after(int x,int z,int mode){ g_mv_x=x; g_mv_z=z; g_mv_mode=mode; g_mv_wait=3; }
+static void cursor_pend_frame(void){
+  if(g_cur_pend && --g_cur_ttl<=0){ g_cur_pend=0; if(tile_in_play(g_cur_tx,g_cur_tz)) cursor_set(g_cur_tx,g_cur_tz,0.f); }   // no cursor tick took it
+  if(g_mv_wait>0 && !g_cur_pend && --g_mv_wait==0){
+    if(cursor_x()!=g_mv_x || cursor_z()!=g_mv_z) return;
+    if(g_mv_mode==2 && tile_threatened(g_mv_x,g_mv_z)){ tm_log2("tap to move: threatened, no confirm",g_mv_x,g_mv_z); return; }
+    tm_log2("tap to move: confirm",g_mv_x,g_mv_z); press(BTN_A); } }
