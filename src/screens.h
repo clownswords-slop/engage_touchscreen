@@ -287,8 +287,8 @@ static int stamp_tap(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78
 // ---- dialogue text log (Talk3D.TalkLogSequence; the log is Talk3D.TalkLog, a SingletonMonoBehaviour: get_Instance 0x21fe50 with
 // the MethodInfo cell main+0x62a4b18): +0x38 m_WindowList (TalkLogUI.Window[]: +0x18 m_RootObject), +0x78 m_CursorIndex,
 // +0x7c m_ScrollIndex. A tap on an entry moves the cursor there with the log's own CursorUp / CursorDown (0x20c2010 / 0x20c2290,
-// called in one go: instant) and presses A (replays its voice), the one-tap rule. Entries are ranked top to bottom on screen; the
-// top one is the scroll index.
+// called in one go: instant) and presses A (replays its voice), the one-tap rule. Entries are ranked top to bottom on screen and
+// counted from the window holding the cursor.
 static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); if(!tl) return 0; u64 arr=RD64(tl+0x38);
   if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>8) n=8;
   float wy[8]; int hit=-1;
@@ -296,8 +296,14 @@ static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); i
     float x0,y0,x1,y1; if(!tr_box(u_go_transform(go),0,&x0,&y0,&x1,&y1) || y1<=0.f || y0>=720.f) continue;   // on screen only (one waits above for the scroll)
     wy[i]=y0; if(x>=x0 && x<x1 && y>=y0 && y<y1) hit=i; }
   if(hit<0) return 1;
-  int rank=0; for(int i=0;i<n;i++) if(wy[i]<wy[hit]) rank++;
-  int cur=RDS32(tl+0x78), sc=RDS32(tl+0x7c), want=sc+rank; tm_log2("talk log entry",want,cur);
+  // the window the cursor is on (+0x30 m_Cursor: +0x10 m_RootObject), then step by the rank difference (empty windows don't matter)
+  int ch=-1; { u64 cu=RD64(tl+0x30); u64 cg= cu && mem_ok(cu) ? RD64(cu+0x10) : 0; float a,b,e,f;
+    if(uobj_ok(cg) && tr_box(u_go_transform(cg),0,&a,&b,&e,&f)){ float cy=(b+f)*0.5f; float bd=1e9f;
+      for(int i=0;i<n;i++){ if(wy[i]>=1e8f) continue; u64 w=RD64(arr+0x20+8ul*i); float x0,y0,x1,y1;
+        if(tr_box(u_go_transform(RD64(w+0x18)),0,&x0,&y0,&x1,&y1)){ float d=cy<y0 ? y0-cy : cy>y1 ? cy-y1 : 0.f; if(d<bd){ bd=d; ch=i; } } } } }
+  if(ch<0) return 1;
+  int rh=0, rc=0; for(int i=0;i<n;i++){ if(wy[i]<wy[hit]) rh++; if(wy[i]<wy[ch]) rc++; }
+  int cur=RDS32(tl+0x78), want=cur+(rh-rc); tm_log2("talk log entry",want,cur);
   for(int g=0;g<8 && RDS32(tl+0x78)<want;g++){ int c=RDS32(tl+0x78); ((int(*)(u64,int,int,u64))M(0x20c2290))(tl,1,1,0); if(RDS32(tl+0x78)==c) break; }
   for(int g=0;g<8 && RDS32(tl+0x78)>want;g++){ int c=RDS32(tl+0x78); ((void(*)(u64,int,u64))M(0x20c2010))(tl,1,0); if(RDS32(tl+0x78)==c) break; }
   press(BTN_A); return 1; }

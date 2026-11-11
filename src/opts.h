@@ -121,7 +121,7 @@ static u64 o_cfg_bcall;
 static int hk_cfg_bcall(u64 m,u64 mi){ if(m && m==g_cfg_menu && g_cfg_sub){ cfg_view(0); return 0x200; }   // SeCancel, stay open
   return ((int(*)(u64,u64))o_cfg_bcall)(m,mi); }
 
-// Settings -> X Reset Settings -> Yes (ConfigYesNoDialogYesMenuItem.ACall 0x253adf0 runs the game's reset): ours reset too
+// Settings -> X Reset Settings -> Yes (ConfigYesNoDialog.ACall 0x253aef0 invokes the reset handler; the Yes row's own ACall only plays a sound): ours reset too
 static u64 o_cfg_reset;
 static int hk_cfg_reset(u64 it,u64 mi){ int r=((int(*)(u64,u64))o_cfg_reset)(it,mi);
   for(int k=0;k<OPT_N;k++) g_opt[k]=0; g_cam_sens[0]=g_cam_sens[1]=CAM_SENS_DEF; settings_save();
@@ -132,5 +132,5 @@ static void opts_init(void){ settings_load();
   o_cfg_ctor=hook_install(M(0x24533f0),(u64)&hk_cfg_ctor);
   o_attr0=hook_install(M(0x2466410),(u64)&hk_attr0); o_attr1=hook_install(M(0x2121bc0),(u64)&hk_attr1); o_attr2=hook_install(M(0x27a9f50),(u64)&hk_attr2);
   o_item_acall=hook_install(M(0x24668c0),(u64)&hk_item_acall); o_item_custom=hook_install(M(0x2466940),(u64)&hk_item_custom);
-  o_cfg_bcall=hook_install(M(0x2538370),(u64)&hk_cfg_bcall); o_cfg_reset=hook_install(M(0x253adf0),(u64)&hk_cfg_reset); o_cfg_onselect=hook_install(M(0x2536fd0),(u64)&hk_cfg_onselect);
+  o_cfg_bcall=hook_install(M(0x2538370),(u64)&hk_cfg_bcall); o_cfg_reset=hook_install(M(0x253aef0),(u64)&hk_cfg_reset); o_cfg_onselect=hook_install(M(0x2536fd0),(u64)&hk_cfg_onselect);
   Buf b={0}; bstr(&b,"[engagetouch] hook options "); bhex(&b,o_cfg_ctor); bput(&b,' '); bhex(&b,o_cfg_bcall); bstr(&b," err "); bhex(&b,g_hook_err); bflush(&b); }

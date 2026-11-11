@@ -195,6 +195,8 @@ static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
 static int str_has(const char*s,const char*t){ for(;*s;s++){ const char*a=s,*b=t; while(*a && *b && *a==*b){ a++; b++; } if(!*b) return 1; } return 0; }
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
+  // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
+  { u64 it=menu_item(m,0); if(it && str_eq(il_cname(it),"MonthMenuItem")) return 1; }
   return str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu"); }
 // ---- battle map Additional Info (ZR held: MapNavigationSequence with the tab row MapNavigationStatusMenu and the Minimap list
 // MapNavigationMiniMapMenu, both BasicMenus) ----
@@ -253,7 +255,11 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
     if(i!=RDS32(m+0xa0)) menu_select(m,i); return 1; }
   if(i<0){ int pa=menu_page_arrow(m,x,y); if(pa){ tm_log2("menu page arrow",pa,0); press(pa<0?BTN_L:BTN_R); return 1; } }
   // value arrows drawn outside the selected row (the birthday's ArrowT / ArrowB over / under the value): step it
-  if(i<0){ int ar=item_arrow(menu_item(m,RDS32(m+0xa0)),x,y); if(ar){ tm_log2("value arrow",ar,0); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; } }
+  if(i<0){ int ar=item_arrow(menu_item(m,RDS32(m+0xa0)),x,y);
+    if(!ar){ u64 it=menu_item(m,RDS32(m+0xa0)); u64 c= it ? RD64(it+0x18) : 0;   // the cursor carrying them is shared: from the rows' parents
+      if(uobj_ok(c)){ u64 tr=u_transform(c); for(int k=0;k<2 && !ar;k++){ u64 pa=u_parent(tr); if(!uobj_ok(pa)) break; tr=pa; g_arrow_n=0; ar=arrow_walk(tr,x,y,0); } }
+      u64 mc=RD64(m+0x70); if(!ar && uobj_ok(mc)){ g_arrow_n=0; ar=arrow_walk(u_transform(mc),x,y,0); } }   // or the menu content root
+    if(ar){ tm_log2("value arrow",ar,0); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; } }
   // a tap off the items does nothing (taps are A, never B, unless a screen says otherwise; the user's rule)
   if(i<0) return 1;
   int ar=item_arrow(menu_item(m,i),x,y);
