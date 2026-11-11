@@ -16,4 +16,4 @@ Y=$(( ($3+$5)/2 )); "$C" "tap 640 $Y" >/dev/null; sleep 1
 # the cursor may already have been on the row: then that tap loaded it
 if "$C" "menu" | head -2 | grep -q "SaveDataMenu"; then "$C" "menu" | head -2 | grep -q "sel $R " || { echo "row $R not selected"; exit 1; }
   "$C" "tap 640 $Y" >/dev/null; fi; sleep 8
-"$D/explore.sh" 120
+"$D/explore.sh" ${EXPLN:-120}

@@ -107,5 +107,12 @@ static void dbg_tree(u64 tr,int d,int maxd){ if(!uobj_ok(tr) || g_tree_n>=180) r
   for(int k=0;k<d;k++) oc(' '); u64 go=u_gameobject(tr); os_ilstr(u_name(tr)); os(uobj_ok(go)&&u_active(go)?" +":" -");
   float x0,y0,x1,y1; if(tr_box(tr,0,&x0,&y0,&x1,&y1)){ oc(' '); oi((s64)x0); oc(','); oi((s64)y0); oc(' '); oi((s64)x1); oc(','); oi((s64)y1); } oc(' '); ox(tr); oc('\n');
   if(d>=maxd) return; int n=u_child_count(tr); for(int i=0;i<n && i<60;i++) dbg_tree(u_child(tr,i),d+1,maxd); }
-static void os_ilstr(u64 s){ if(!s||!mem_ok(s)){ os("null"); return; } int n=RDS32(s+0x10); if(n>60) n=60; for(int i=0;i<n;i++){ u16 c=*(volatile u16*)(s+0x14+2*i); oc(c<128&&c>=32?(char)c:'?'); } }
+// print the text of every active TextMeshPro text in a subtree (TMP_Text +0xd0 m_text): reading screens blind
+static void os_ilstr(u64 s);
+static void dbg_texts(u64 tr,int d){ if(!uobj_ok(tr) || g_tree_n>=120 || d>14) return; u64 go=u_gameobject(tr); if(!uobj_ok(go) || !u_active(go)) return;
+  if(!g_t_tmp_tried){ g_t_tmp_tried=1; g_t_tmp=il_type("TMPro.TMP_Text, Unity.TextMeshPro"); }
+  if(g_t_tmp){ u64 t=u_get_comp(tr,g_t_tmp); if(uobj_ok(t) && u_enabled(t)){ u64 s=RD64(t+0xd0);   /* m_text (no get_text call: it can allocate) */
+      if(s && mem_ok(s) && RDS32(s+0x10)>0){ g_tree_n++; os_ilstr(u_name(tr)); os(": "); os_ilstr(s); oc(10); } } }
+  int n=u_child_count(tr); for(int i=0;i<n && i<80;i++) dbg_texts(u_child(tr,i),d+1); }
+static void os_ilstr(u64 s){ if(!s||!mem_ok(s)){ os("null"); return; } int n=RDS32(s+0x10); if(n>160) n=160; for(int i=0;i<n;i++){ u16 c=*(volatile u16*)(s+0x14+2*i); oc(c<128&&c>=32?(char)c:'?'); } }
 #endif
