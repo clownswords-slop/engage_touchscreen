@@ -5,7 +5,7 @@
 D="$(dirname "$0")"; C="$D/cmd.sh"; R=${1:-1}
 row(){ b=$("$C" "menu" | grep "$1" | head -1 | grep -o "box [0-9]*,[0-9]* [0-9]*,[0-9]*") || return 1; set -- $(echo "$b" | tr ',' ' ')
   "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 0.8; "$C" "menu" | grep -q "$1" && "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 2; }
-auto(){ "$D/weaken.sh" >/dev/null; "$C" "btn 1024 4" >/dev/null; sleep 2; row OrderItem
+auto(){ "$D/weaken.sh" >/dev/null; "$C" "btn 2 3" >/dev/null; sleep 1; "$C" "btn 1024 4" >/dev/null; sleep 2; row OrderItem
   b=$("$C" "menu" | grep "^$R SubOrderMenuItem" | grep -o "box [0-9]*,[0-9]* [0-9]*,[0-9]*") || return; set -- $(echo "$b" | tr ',' ' ')
   "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 0.8; "$C" "menu" | grep -q SubOrderMenu && "$C" "tap $(( ($2+$4)/2 )) $(( ($3+$5)/2 ))" >/dev/null; sleep 2; echo "auto-battle"; }
 for i in $(seq 1 400); do sleep 1.5; w=$("$D/where.sh" 25)
