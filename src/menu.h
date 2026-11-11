@@ -34,6 +34,8 @@ static int menu_hit(u64 m,float x,float y){ u64 cam=menu_cam(m); int n=menu_item
 static int g_arrow_n;
 static int arrow_walk(u64 tr,float x,float y,int d){ if(!uobj_ok(tr) || g_arrow_n++>200) return 0; u64 nm=u_name(tr); int dir=0;
   if(il_str_eq(nm,"ArrowL")) dir=-1; else if(il_str_eq(nm,"ArrowR")) dir=1;
+  else if(il_str_eq(nm,"ArrowU") || il_str_eq(nm,"ArrowUp") || il_str_eq(nm,"ArrowT")) dir=-2;      // value steppers above /
+  else if(il_str_eq(nm,"ArrowD") || il_str_eq(nm,"ArrowDown") || il_str_eq(nm,"ArrowB")) dir=2;    // below the value (birthday)
   if(dir){ u64 go=u_gameobject(tr); float x0,y0,x1,y1; if(uobj_ok(go) && u_active(go) && tr_box(tr,0,&x0,&y0,&x1,&y1) && x>=x0-30.f && x<x1+30.f && y>=y0-12.f && y<y1+12.f) return dir; return 0; }
   if(d>=5) return 0; int n=u_child_count(tr); for(int i=0;i<n && i<24;i++){ int r=arrow_walk(u_child(tr,i),x,y,d+1); if(r) return r; } return 0; }
 static int item_arrow(u64 it,float x,float y){ u64 c=RD64(it+0x18); if(!uobj_ok(c)) return 0; g_arrow_n=0; return arrow_walk(u_transform(c),x,y,0); }
@@ -253,7 +255,7 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   // a tap off the items does nothing (taps are A, never B, unless a screen says otherwise; the user's rule)
   if(i<0) return 1;
   int ar=item_arrow(menu_item(m,i),x,y);
-  if(ar){ if(i!=RDS32(m+0xa0)) menu_select(m,i); press(ar<0?BTN_L:BTN_R); return 1; }   // value arrow: select the row, step its value
+  if(ar){ if(i!=RDS32(m+0xa0)) menu_select(m,i); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; }   // value arrow: select the row, step its value
   if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
   menu_select(m,i); if(!menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
   return 1; }
