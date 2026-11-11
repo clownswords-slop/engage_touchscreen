@@ -203,6 +203,9 @@ static void dbg_ext(const char*p){
   // turn end, as for a real win. Prints IsComplete before / after.
   else if(starts(p,"win")){ p+=3; s64 r=(s64)parse_num(&p); if(r<=0) r=1; u64 ms=cell_inst(0x6283ea8,0x1c3000); os("win "); ox(ms);
     if(ms){ oi(((int(*)(u64,u64))M(0x1f2e930))(ms,0)); ((void(*)(u64,int,u64))M(0x1f4a570))(ms,(int)r,0); oc(32); oi(((int(*)(u64,u64))M(0x1f2e930))(ms,0)); } oc(10); }
+  else if(starts(p,"hubhelp")){ u64 h=g_hubhelp; os("hubhelp "); ox(h); os(" age "); oi((s64)(g_poll-g_hubhelp_poll)); if(uobj_ok(h)){ u64 acc=RD64(h+0x18); u64 go=u_gameobject(h);
+      os(" acc "); ox(acc); if(uobj_ok(acc)){ oc(32); os_ilstr(RD64(acc+0x18)); } os(" active "); oi(uobj_ok(go)&&u_active(go)); os(" alpha "); of(ui_alpha(u_transform(h)));
+      float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_transform(h),0,&x0,&y0,&x1,&y1); os(" box "); oi((s64)x0); oc(','); oi((s64)y0); oc(32); oi((s64)x1); oc(','); oi((s64)y1); } oc(10); }
   else if(starts(p,"mapcam")){ u64 c=map_cursor_inst(); os("mapcam "); ox(c); if(c){ os(" rot "); of(*(volatile float*)(c+0x40)); oc(32); of(*(volatile float*)(c+0x44)); oc(32); of(*(volatile float*)(c+0x48)); } oc(10); }
   else if(starts(p,"hubcam")){ u64 c=hubcam(); os("hubcam "); ox(c); if(c){ os(" ax "); of(*(volatile float*)(c+0x104)); os(" ay "); of(*(volatile float*)(c+0x108)); os(" dist "); of(*(volatile float*)(c+0x10c)); os(" zoom "); of(*(volatile float*)(c+0x110)); os(" getY "); of(((float(*)(u64,u64))M(0x2d792d0))(c,0)); { float a,b; if(hub_angles(&a,&b)){ os(" pitch "); of(b); } } } oc(10); }
   else if(starts(p,"gspots")){ dbg_gspots(); }
@@ -212,6 +215,14 @@ static void dbg_ext(const char*p){
     for(int k=0;k<n && k<80;k++){ u64 a=RD64(arr+0x20+8ul*k); if(!uobj_ok(a)) continue; u64 go=u_gameobject(a); if(!uobj_ok(go) || !u_active(go)) continue;
       V3 q=((V3(*)(u64,u64))M(0x378f890))(u_transform(a),0); oi(k); oc(' '); os_ilstr(RD64(a+0x18)); oc(' '); of(q.x); oc(' '); of(q.z);
       float dx=q.x-me.x, dz=q.z-me.z; os(" d "); of(tm_sqrt(dx*dx+dz*dz)); oc('\n'); } }
+  // warpa K [d]: TEST ONLY. Put Alear next to interactable K of `access` (its position, d/100 units back towards her, default 1.5):
+  // Transform.set_position (0x378f940) on the player's transform. For blind testing when a wall blocks the walk.
+  else if(starts(p,"warpa")){ p+=5; int K=(int)parse_num(&p); s64 dd=(s64)parse_num(&p); float back= dd>0 ? (float)dd/100.f : 1.5f;
+    u64 t=il_type("App.HubAccess, Assembly-CSharp"); u64 arr= t ? ((u64(*)(u64,u64))M(0x32ef7d0))(t,0) : 0; int n= arr&&mem_ok(arr) ? (int)RD64(arr+0x18) : 0;
+    u64 c=hubcam(); u64 pc= c ? RD64(c+0x70) : 0; if(K<0 || K>=n || !pc || !mem_ok(pc)){ os("bad"); oc(10); return; }
+    u64 a=RD64(arr+0x20+8ul*K); if(!uobj_ok(a)){ os("bad"); oc(10); return; } u64 ptr=((u64(*)(u64,u64))M(0x23d80d0))(pc,0); if(!uobj_ok(ptr)){ os("no player"); oc(10); return; }
+    V3 q=((V3(*)(u64,u64))M(0x378f890))(u_transform(a),0), me=((V3(*)(u64,u64))M(0x378f890))(ptr,0); float dx=me.x-q.x, dz=me.z-q.z, l=tm_sqrt(dx*dx+dz*dz);
+    if(l>0.01f){ q.x+=dx/l*back; q.z+=dz/l*back; } ((void(*)(u64,V3,u64))M(0x378f940))(ptr,q,0); os("warp "); of(q.x); oc(32); of(q.y); oc(32); of(q.z); oc(10); }
   else if(starts(p,"ls")){ p+=2; dbg_ls_x=(s32)(s64)parse_num(&p); dbg_ls_y=(s32)(s64)parse_num(&p); dbg_ls_n=(int)parse_num(&p); os("ls\n"); }
   else if(starts(p,"rs")){ p+=2; s32 x=(s32)(s64)parse_num(&p), y=(s32)(s64)parse_num(&p); int n=(int)parse_num(&p); rs_push(x,y,n?n:10,4); os("rs\n"); }
   else if(starts(p,"bir")){ p+=3; u64 off=parse_num(&p); if(!off) off=0x40; int d=(int)parse_num(&p); if(!d) d=6; os("bir "); ox(g_bir); oc('\n');
@@ -220,6 +231,7 @@ static void dbg_ext(const char*p){
   else if(starts(p,"ptexts")){ p+=6; while(*p==' ') p++; u64 pr= (*p>='0'&&*p<='9') ? parse_num(&p) : proc_find(p); g_tree_n=0; if(!pr){ os("no proc"); oc(10); return; }
     for(u32 o=0x70;o<0x200;o+=8){ u64 f=RD64(pr+o); if(!f || !mem_ok(f) || !uobj_ok(f)) continue; if(!il_is(f,"UnityEngine","Component") && !il_is(f,"UnityEngine","GameObject")) continue; u64 tr=any_transform(f); if(!tr) continue; os("+"); ox(o); oc(10); dbg_texts(tr,0); } }
   else if(starts(p,"texts")){ p+=5; u64 o=parse_num(&p); u64 tr=any_transform(o); g_tree_n=0; if(!tr){ os("no transform"); oc(10); return; } dbg_texts(tr,0); }
+  else if(starts(p,"mtree")){ p+=5; int d=(int)parse_num(&p); if(!d) d=6; u64 m=g_menu; u64 c= m ? RD64(m+0x70) : 0; g_tree_n=0; if(!uobj_ok(c) || !il_is(c,"UnityEngine","Component")){ os("no menu content"); oc(10); return; } dbg_tree(u_transform(c),0,d); }
   else if(starts(p,"tree")){ p+=4; u64 o=parse_num(&p); int d=(int)parse_num(&p); if(!d) d=3; u64 tr=any_transform(o); g_tree_n=0; if(!tr){ os("no transform\n"); return; } dbg_tree(tr,0,d); }
   else if(starts(p,"pick")){ p+=4; float x=(float)(s64)parse_num(&p), y=(float)(s64)parse_num(&p); dbg_pick(x,y); }
   else if(starts(p,"mset")){ p+=4; int x=(int)parse_num(&p), z=(int)parse_num(&p); cursor_set(x,z,0.f); os("ok\n"); }

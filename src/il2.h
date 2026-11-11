@@ -14,7 +14,8 @@ static u64 il_vfn(u64 o,int slot){ return RD64(RD64(o)+0x138+16ul*slot); }
 static u64 il_vmi(u64 o,int slot){ return RD64(RD64(o)+0x140+16ul*slot); }
 // does o's class (or a parent) have this namespace + name?
 static int il_is(u64 o,const char*ns,const char*n){ u64 k=il_klass(o);
-  for(int d=0;k&&d<24&&mem_ok(k);d++){ if(str_eq((const char*)RD64(k+0x10),n) && str_eq((const char*)RD64(k+0x18),ns)) return 1; k=RD64(k+0x58); }
+  for(int d=0;k&&d<24&&mem_ok(k);d++){ u64 kn=RD64(k+0x10), kns=RD64(k+0x18); if(!kn || !kns || !mem_ok(kn) || !mem_ok(kns)) return 0;   // a class being torn down
+    if(str_eq((const char*)kn,n) && str_eq((const char*)kns,ns)) return 1; k=RD64(k+0x58); }
   return 0; }
 // klass pointer identity check with a cache per call site: `static u64 kc; il_isk(o,&kc,ns,n)`
 static int il_isk(u64 o,u64*kc,const char*ns,const char*n){ u64 k=il_klass(o); if(!k) return 0;

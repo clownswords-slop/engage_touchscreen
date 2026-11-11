@@ -244,6 +244,12 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   // a tap there (the rows' width, below the last row) is X
   if(i<0 && str_eq(il_cname(m),"ItemMenu")){ float bx0,by0,bx1,by1;
     if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && x>=bx0-10.f && x<bx1+40.f && y>by1){ tm_log2("item panel: X",0,0); press(BTN_X); return 1; } }
+  // Tower of Trials -> Tempest Trial -> map -> difficulty (ChallengeDifficultyMenu): one row without a box ("Difficulty < 14 >",
+  // its arrows are page arrows = d-pad Left / Right) and the "Fight!" button under it (Contents/Viewport/Content/List1), which
+  // is the row's A: a tap on Fight! = A
+  if(i<0 && str_eq(il_cname(m),"ChallengeDifficultyMenu")){ u64 c=RD64(m+0x70); u64 tr= uobj_ok(c) ? u_transform(c) : 0;
+    u64 a= tr ? tr_child_named(tr,"Contents") : 0, b= a ? tr_child_named(a,"Viewport") : 0, d= b ? tr_child_named(b,"Content") : 0, f= d ? tr_child_named(d,"List1") : 0;
+    float x0,y0,x1,y1; if(f && tr_box(f,0,&x0,&y0,&x1,&y1) && x>=x0-10.f && x<x1+10.f && y>=y0-10.f && y<y1+10.f){ tm_log2("challenge fight: A",0,0); press(BTN_A); return 1; } }
   int troop=str_eq(il_cname(m),"TroopListMenu");
   if(troop && i<0 && troop_header_tap(m,x,y)) return 1;
   if(troop && i<0 && troop_page_arrow(m,x,y)) return 1;
