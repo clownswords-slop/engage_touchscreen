@@ -9,6 +9,13 @@ static V3 cursor_pos(void){ return ((V3(*)(u64))M(0x29bee00))(0); }
 static int cursor_x(void){ return ((int(*)(u64))M(0x29bbec0))(0); }
 static int cursor_z(void){ return ((int(*)(u64))M(0x29bc000))(0); }
 static void cursor_set(int x,int z,float speed){ ((void(*)(int,int,float,int,u64))M(0x29bc380))(x,z,speed,1,0); }
+// The playable tiles: App.MapImage (SingletonClass: shared get_Instance 0x1c3260 with the MethodInfo in the cell at
+// main+0x6283f48, what MapCursor.ClampPosition reads) +0x90 PlayAreaX1, +0x94 PlayAreaZ1, +0x98 PlayAreaX2, +0x9c PlayAreaZ2
+// (inclusive). MapCursor.Set with a tile outside it throws in MapImageUnit.GetUnit (uncaught: the game aborts), which a tap on
+// a UI panel over the map edge used to cause: only tiles inside are ever passed to it.
+static int tile_in_play(int x,int z){ u64 cell=RD64(M(0x6283f48)); if(!cell || !mem_ok(cell)) return 0; u64 mi=RD64(cell);
+  if(!mi || (mi&1) || !mem_ok(mi)) return 0; u64 im=((u64(*)(u64))M(0x1c3260))(mi); if(!im || !mem_ok(im)) return 0;
+  return x>=RDS32(im+0x90) && x<=RDS32(im+0x98) && z>=RDS32(im+0x94) && z<=RDS32(im+0x9c); }
 // world point on the cursor's height plane under a 720p point; 0 if the ray misses it
 static int map_unproject(float x,float y,V3*out){ u64 cam=map_cam(); if(!uobj_ok(cam)) return 0;
   if(!g_scr_w){ g_scr_w=u_scr_w(); g_scr_h=u_scr_h(); if(g_scr_w<=0){ g_scr_w=1280; g_scr_h=720; } }

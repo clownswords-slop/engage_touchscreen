@@ -52,6 +52,7 @@ static int map_tap(u64 h,float x,float y){ V3 w; if(!map_unproject(x,y,&w)) retu
   int cx=cursor_x(), cz=cursor_z(); V3 c=cursor_pos();
   int tx=cx+ifloor((w.x-c.x)/TILE+g_tile_off), tz=cz+ifloor((w.z-c.z)/TILE+g_tile_off); tm_log2("map tile",tx,tz);
   if(tx==cx && tz==cz){ press(BTN_A); return 1; }
+  if(!tile_in_play(tx,tz)){ tm_log2("map tile off the play area",tx,tz); return 1; }   // never MapCursor.Set outside it (aborts)
   cursor_set(tx,tz,0.f);
   // choosing a destination (label 4 PickCursorTick): the route (= where A moves the unit) only follows the d-pad's own cursor
   // moves, so rebuild it for the tapped tile: MapSequenceHuman.UpdateRoute(x, z) 0x2662ab0
@@ -78,7 +79,7 @@ static int target_tap(u64 ts,int tx,int tz){ u64 mt=map_target(); if(!mt || !mem
   return 1; }
 // tapped tile, 0 if the tap misses the map plane
 static int map_tile_at(float x,float y,int*tx,int*tz){ V3 w; if(!map_unproject(x,y,&w)) return 0; V3 c=cursor_pos();
-  *tx=cursor_x()+ifloor((w.x-c.x)/TILE+g_tile_off); *tz=cursor_z()+ifloor((w.z-c.z)/TILE+g_tile_off); return 1; }
+  *tx=cursor_x()+ifloor((w.x-c.x)/TILE+g_tile_off); *tz=cursor_z()+ifloor((w.z-c.z)/TILE+g_tile_off); return tile_in_play(*tx,*tz); }
 
 // ---- tutorial windows (App.TutorialSequence): page arrows left / right, anything else is A (next page / close) ----
 static int tutorial_tap(float x,float y){
