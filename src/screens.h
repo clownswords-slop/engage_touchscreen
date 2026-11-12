@@ -371,10 +371,10 @@ static int screen_tap(float x,float y){ u64 p;
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
      || proc_find("ProcRelayResult") || proc_find("GodGrowSequence") || proc_find("RingGachaSequence") || proc_find("RingSynthesisSequence") || proc_find("RefineShopEngraveDemo")   /* Create / Meld Bond Rings reveal: (A) Next / (A) Confirm; Smithy engrave result (no prompt, waits for A) */
-     || proc_find("GameMessage") || proc_find("DemoTelop")){   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
+     || proc_find("GameMessage") || proc_find("DemoTelop") || proc_find("DishResultDialog")){   /* café meal result (rank / effects, no prompt) */   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
   // Strength Training sit-ups / push-ups (SitUp.MuscleSitupSequence / PushUp.MusclePushupSequence, the "A" button on screen):
   // every tap is a press, short so fast tapping keeps up
-  if(((p=proc_find("MuscleSitupSequence")) || (p=proc_find("MusclePushupSequence"))) && !proc_sus(p)){ q_push(BTN_A,2,1); return 1; }
+  if(((p=proc_find("MuscleSitupSequence")) || (p=proc_find("MusclePushupSequence")) || (p=proc_find("MuscleSquatSequence"))) && !proc_sus(p)){ q_push(BTN_A,2,1); return 1; }
   // My Room -> Sleep: the wake-up scene (MyRoomWakeupSequence, a timeline with no prompt) skips on A: a tap is A
   if((p=proc_find("MyRoomWakeupSequence")) && !proc_sus(p)){ tm_log2("wake-up: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen

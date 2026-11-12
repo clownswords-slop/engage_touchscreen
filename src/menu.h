@@ -130,6 +130,17 @@ static int index_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); con
   for(int g=0;g<12;g++){ int cur=it->cur(m); if(cur==t || cur<0) break; int sl= cur<t ? 43 : 42;
     ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(it->cur(m)==cur) break; }
   return 1; }
+// Café Order Meal dish categories (CookingMenu.DishSelectMenu): the icons are DishSelectMenuCategoryContent's static
+// s_EnableCategoryList (List<CategoryObject { GameObject m_Object +0x10 }>, statics +0x0) in display order, the current one
+// GetIndex() 0x1cf91d0; the menu's KeyRight / KeyLeft (43 / 42) step it. A tap on an icon steps there at once.
+static int dish_tabs_tap(u64 m,float x,float y){ if(!str_eq(il_cname(m),"DishSelectMenu")) return 0;
+  u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 cc=RD64(c+0xf0); if(!cc || !mem_ok(cc)) return 0;
+  u64 k=RD64(cc); u64 st= k && mem_ok(k) ? RD64(k+0xb8) : 0; if(!st || !mem_ok(st)) return 0; u64 l=RD64(st); int n=list_n(l); if(n<1 || n>16) return 0;
+  int t=-1; for(int i=0;i<n;i++){ u64 co=list_at(l,i); if(!co || !mem_ok(co)) continue; if(go_hit(RD64(co+0x10),x,y,6.f)){ t=i; break; } }
+  if(t<0) return 0; tm_log2("dish tab",t,((int(*)(u64))M(0x1cf91d0))(0));
+  for(int g=0;g<16;g++){ int cur=((int(*)(u64))M(0x1cf91d0))(0); if(cur==t) break; int sl= cur<t ? 43 : 42;
+    ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); if(((int(*)(u64))M(0x1cf91d0))(0)==cur) break; }
+  return 1; }
 // Kind tabs (shops / smithy / accessories / relay messages): the menu keeps the current kind, its content an array of KindIcon
 // { Image m_Image +0x10, int m_Kind +0x18 }. A tap on an icon calls the menu's KeyRight / KeyLeft (vtable 43 / 42) until the
 // menu's kind is the icon's (direction from the icons' order: kinds aren't numbered in display order); "<" ">" arrows under the
@@ -225,13 +236,17 @@ static const char* const k_two_tap[]={
   "AccessoryShopBuyMenu", "AccessoryShopChangeMenu",                                         // boutique
   "SkillInheritanceMenu", "SkillEditEquipSkillMenu", "SkillEditPoolSkillMenu", "SynthesisRingBaseRingMenu",   // Ring Chamber
   "MuscleStartMenu", "MuscleDifficultMenu", "AnimalInsideMenu", "AnimalOutsideMenu",         // strength training, stable
-  "MascotFoodSelectMenu", "MascotAccChangeMenu" };                                           // Sommie feed / accessories
+  "MascotFoodSelectMenu", "MascotAccChangeMenu",                                            // Sommie feed / accessories
+  "DishSelectMenu", "FoodstuffMenu",                                                         // café meals (CookingMenu.*)
+  "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu",                                      // arena: emblem / level picks
+  "AchievementMenu" };                                                                       // Records Hall
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
   { u64 it=menu_item(m,0); if(it && str_eq(il_cname(it),"MonthMenuItem")) return 1; }
   if(str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu") || str_eq(c,"MyRoomRelianceSelect")) return 1;
   for(u32 j=0;j<sizeof(k_two_tap)/sizeof(k_two_tap[0]);j++) if(str_eq(c,k_two_tap[j])) return 1;
+  if(str_has(c,"Photograph") && str_has(c,"Menu")) return 1;   // photoshoot menus (PhotographSelect*Menu, PhotographEditDisposMenu)
   return 0; }
 // ---- battle map Additional Info (ZR held: MapNavigationSequence with the tab row MapNavigationStatusMenu and the Minimap list
 // MapNavigationMiniMapMenu, both BasicMenus) ----
@@ -299,7 +314,8 @@ static void ring_ref_frame(void){ if(!g_rr_n) return; u64 sq=proc_find("RingList
   press(g_rr_btn); g_rr_n--; g_rr_wait=12; tm_log2("ring ref press",(s64)g_rr_btn,g_rr_n); }
 static void details_at(float x,float y,u64 btn);   // help.h
 static int help_known_miss(u64 m,float x,float y);
-static const char* const k_details_menus[]={ "GodRoomUnitSelectMenu", "UnitSelectMenu", "UnitSelectSortieMenu", "RingSelectMenu", "ShopUnitSelectMenu" };   // + shops' unit list   // Ring Chamber; prep Inventory / Emblem Rings, Unit Selection, ring picker
+static const char* const k_details_menus[]={ "GodRoomUnitSelectMenu", "UnitSelectMenu", "UnitSelectSortieMenu", "RingSelectMenu", "ShopUnitSelectMenu",
+  "ArenaExpUnitSelectMenu", "ArenaBondUnitSelectMenu", "FortuneTellingUnitSelectMenu", "RefreshUnitSelectMenu" };   // arena, fortune teller, recreation   // + shops' unit list   // Ring Chamber; prep Inventory / Emblem Rings, Unit Selection, ring picker
 // Shops' buy / sell screens (armory, item shop, flea market): the "In-Use Stats" panel is the root's ItemMenuDetailSetter (a
 // MonoBehaviour on the panel); X Cycle Info swaps what it shows: a tap on it is X. Roots: HubWeaponShopSequence +0x80
 // WeaponShopBuyRoot (+0x88 setter), HubItemShopSequence +0x80 ItemShopBuyRoot (+0x70), and every sequence's +0x88 ShopSellRoot (+0x50).
@@ -336,6 +352,7 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(troop && i<0 && troop_page_arrow(m,x,y)) return 1;
   if(i<0 && index_tabs_tap(m,x,y)) return 1;
   if(i<0 && kind_tabs_tap(m,x,y)) return 1;
+  if(i<0 && dish_tabs_tap(m,x,y)) return 1;
   if(i<0 && menu_pair_tap(m,x,y)) return 1;
   if(i<0 && mascot_parts_tap(m,x,y)) return 1;
   if(troop && i>=0 && RD8(m+0xc4)){ ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEDOWN))(m,1,il_vmi(m,TL_MOVEDOWN));   // leave sort mode, select the row
@@ -366,7 +383,9 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if((str_eq(il_cname(m),"MyRoomRelianceSubSelect") || str_eq(il_cname(m),"MyRoomWakeupSelectMenu")) && RD8(m+0xc4) && i!=RDS32(m+0xa0)){
     tm_log2("rank phase: B, then row",i,0); press(BTN_B); g_rank_menu=m; g_rank_idx=i; g_rank_ttl=60; return 1; }
   if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
-  menu_select(m,i); if(!menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
+  // café ingredients (CookingMenu.FoodstuffMenu): the last row is the Confirm button, not an ingredient: one tap
+  int btn_row= str_eq(il_cname(m),"FoodstuffMenu") && i==menu_items(m)-1;
+  menu_select(m,i); if(btn_row || !menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
   return 1; }
 
 // BasicMenu.MoveFrontCursorFrom(fromMenuItem, frame) 0x245d710: the cursor slides from the other list over `frame` frames; one frame
