@@ -68,35 +68,48 @@ static int g_cur_pend, g_cur_tx, g_cur_tz, g_cur_ttl;
 // The camera eases over to a tapped tile with the game's own interpolators (smooth, and a new tap turns it towards the new tile);
 // the tile under a tap is found from the camera as drawn that frame, so taps while it moves still land where the finger is.
 // (MapCamera.Instant 0x299c630 snapped it at once: too jerky for the user.)
-// Continuous glide: while a tapped tile glide runs, MapCamera.SetPositionImpl (0x299a6e0: this, Vector3 pos, float speed) still
-// works out the target (clamps, height) and starts m_Position's ease (+0x20 InterpolatorVector3: +0x10 m_Time, +0x14 m_Tick,
-// +0x21 m_IsDirty, +0x24 m_Prev, +0x30 m_Next); the hook takes m_Next as the target and puts the ease back on our own position.
-// MapCamera.OnUpdate (0x299d1b0) is hooked to move that position each frame with a critically damped spring (Unity SmoothDamp)
-// that keeps its velocity, so a tap on another tile mid-glide bends the path towards it instead of restarting from a standstill.
+// Tapped tiles keep the game's own camera glide (MapCamera.SetPositionImpl 0x299a6e0: this, Vector3 pos, float speed -> m_Position
+// +0x20 InterpolatorVector3: +0x10 m_Time, +0x14 m_Tick, +0x21 m_IsDirty, +0x24 m_Prev, +0x30 m_Next, a fixed-time ease). Only a tap
+// while that glide is still running is handed off: the camera goes on from its current position AND speed (measured each frame in
+// MapCamera.OnUpdate 0x299d1b0) with a critically damped spring (Unity SmoothDamp) towards the new target, so it bends towards the
+// new tile instead of restarting from a standstill. During the hand-off SetPositionImpl still works out the target (clamps,
+// height); the hook takes it from m_Next and holds the ease on our position (Prev = Next = p, m_Tick = m_Time, dirty). Once it
+// arrives, the game has the camera again.
 #define GLIDE_TIME 0.16f
 static int g_glide, g_glide_ttl; static V3 g_gp, g_gv, g_gt; static u64 g_mapcam;
+static V3 g_cam_last, g_cam_vel; static int g_cam_last_ok;   // the camera's position / speed (units per second) as of the last frame
 static u64 o_setpos, o_camupd;
 static void ip3_hold(u64 ip,V3 p){ *(volatile float*)(ip+0x24)=p.x; *(volatile float*)(ip+0x28)=p.y; *(volatile float*)(ip+0x2c)=p.z;
   *(volatile float*)(ip+0x30)=p.x; *(volatile float*)(ip+0x34)=p.y; *(volatile float*)(ip+0x38)=p.z;
   *(volatile float*)(ip+0x14)=*(volatile float*)(ip+0x10); *(volatile u8*)(ip+0x21)=1; }
 static V3 ip3_value(u64 ip){ return ((V3(*)(u64,u64))il_vfn(ip,4))(ip,il_vmi(ip,4)); }
+static int ip_running(u64 ip){ return RDF(ip+0x14)<RDF(ip+0x10); }
 static void hk_setpos(u64 self,float x,float y,float z,float speed,u64 mi){
   ((void(*)(u64,float,float,float,float,u64))o_setpos)(self,x,y,z,speed,mi);
   if(!g_glide || self!=g_mapcam) return; u64 ip=RD64(self+0x20); if(!ip || !mem_ok(ip)) return;
   g_gt.x=RDF(ip+0x30); g_gt.y=RDF(ip+0x34); g_gt.z=RDF(ip+0x38); g_glide_ttl=180; ip3_hold(ip,g_gp); }
 static float glide_step(float*p,float*v,float t,float dt){ float om=2.f/GLIDE_TIME, x=om*dt, e=1.f/(1.f+x+0.48f*x*x+0.235f*x*x*x);
   float c=*p-t, tmp=(*v+om*c)*dt; *v=(*v-om*tmp)*e; *p=t+(c+tmp)*e; return c; }
-static void hk_camupd(u64 self,u64 mi){ g_mapcam=self;
-  if(g_glide){ u64 ip=RD64(self+0x20);
-    if(!ip || !mem_ok(ip) || --g_glide_ttl<=0){ g_glide=0; }
+static void hk_camupd(u64 self,u64 mi){ if(self!=g_mapcam){ g_mapcam=self; g_cam_last_ok=0; g_glide=0; }
+  u64 ip=RD64(self+0x20); if(!ip || !mem_ok(ip)){ g_glide=0; ((void(*)(u64,u64))o_camupd)(self,mi); return; }
+  if(g_glide){
+    if(--g_glide_ttl<=0) g_glide=0;
     else { const float dt=1.f/60.f; glide_step(&g_gp.x,&g_gv.x,g_gt.x,dt); glide_step(&g_gp.y,&g_gv.y,g_gt.y,dt); glide_step(&g_gp.z,&g_gv.z,g_gt.z,dt);
       float dx=g_gp.x-g_gt.x, dy=g_gp.y-g_gt.y, dz=g_gp.z-g_gt.z, sp=g_gv.x*g_gv.x+g_gv.y*g_gv.y+g_gv.z*g_gv.z;
       if(dx*dx+dy*dy+dz*dz<1e-4f && sp<1e-3f){ g_gp=g_gt; g_glide=0; }
       ip3_hold(ip,g_gp); } }
-  ((void(*)(u64,u64))o_camupd)(self,mi); }
-// a tapped tile: start gliding from where the camera is now (or keep the running glide and its speed)
+  ((void(*)(u64,u64))o_camupd)(self,mi);
+  V3 c=ip3_value(ip);
+  if(g_cam_last_ok){ g_cam_vel.x=(c.x-g_cam_last.x)*60.f; g_cam_vel.y=(c.y-g_cam_last.y)*60.f; g_cam_vel.z=(c.z-g_cam_last.z)*60.f; }
+  else g_cam_vel.x=g_cam_vel.y=g_cam_vel.z=0.f;
+  g_cam_last=c; g_cam_last_ok=1; }
+// a tapped tile: the game's own glide, unless one is still running (or ours is): then the hand-off, from the camera's current
+// position and speed
 static void glide_begin(void){ u64 c=g_mapcam; if(!c || !mem_ok(c)) return; u64 ip=RD64(c+0x20); if(!ip || !mem_ok(ip)) return;
-  if(!g_glide){ g_gp=ip3_value(ip); g_gv.x=g_gv.y=g_gv.z=0.f; g_gt=g_gp; } g_glide=1; g_glide_ttl=180; }
+  if(g_glide){ g_glide_ttl=180; return; }
+  float sp=g_cam_vel.x*g_cam_vel.x+g_cam_vel.y*g_cam_vel.y+g_cam_vel.z*g_cam_vel.z;
+  if(!g_cam_last_ok || !ip_running(ip) || sp<0.01f) return;   // at rest: the game's glide, untouched
+  g_gp=ip3_value(ip); g_gv=g_cam_vel; g_gt=g_gp; g_glide=1; g_glide_ttl=180; tm_log2("glide hand-off",(s64)(sp*100.f),0); }
 static u64 o_tickmove;
 static void hk_tickmove(int trig,u64 mi){ ((void(*)(int,u64))o_tickmove)(trig,mi);
   if(g_cur_pend){ g_cur_pend=0; if(tile_in_play(g_cur_tx,g_cur_tz)){ glide_begin(); cursor_set(g_cur_tx,g_cur_tz,0.f); } } }
