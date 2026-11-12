@@ -98,7 +98,7 @@ static void frame_tick(void){
 #endif
   if(GetTouchN){ int n=GetTouchN(tsh,16); if(n>16) n=16;
     for(int i=n-1;i>=0;i--) if(tsh[i].sampling>last_samp){ last_samp=tsh[i].sampling; touch_update(&tsh[i]); } }
-  cursor_pend_frame(); details_frame(); notebook_frame(); g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
+  cursor_pend_frame(); details_frame();  g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
 #ifdef TM_DEBUG
   g_inject|=cur_inject_dbg;
 #endif

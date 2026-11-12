@@ -25,7 +25,7 @@ static void on_tap(float x,float y){
 // pushes the stick the finger's way, one in the upper half the other way.
 #define CAM_DEAD 30.f
 #define CAM_GAIN 0.12f
-#define CAM_YAW_STEP 217.6f   // 17% of the 1280 px screen width per push (user, 2026-11-11; was 128 as in Three Houses)
+#define CAM_YAW_STEP 128.f    // as in Three Houses (the user had it at 17% of the width on 2026-11-11, then asked for this back)
 #define BTN_RS_LEFT (1ul<<20)
 #define BTN_RS_RIGHT (1ul<<22)
 static int t_cam_steps, t_cam_ysign;

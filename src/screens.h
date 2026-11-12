@@ -253,22 +253,19 @@ static int ring_rotate(float rdx,float rdy){ u64 p=ring_clean_seq(); if(!p) retu
   if(!k || !mem_ok(k) || !uobj_ok(RD64(k+0x18))) return 0; ((void(*)(u64,float,float,u64))M(0x2418e00))(k,rdx,rdy,0); return 1; }
 
 // ---- Sommie colour palette (App.MascotColorChangeMenu: a ProcInst grid, not a BasicMenu): +0x80 m_result, +0x90 m_cursor
-// (CursorTop: +0x10 XCount, +0x14 YCount, +0x20 m_cursorTop RectTransform, +0x28 m_selectIndex (x, y)). Cell centres in the
-// cursor's parent: x {-213,-71,71,213}[col], y {204,62,-80,-222}[row] (GetPositionX / Y tables, main+0x4d6bea0 / +0x4d6beac).
+// (CursorTop: +0x10 XCount, +0x14 YCount, +0x20 m_cursorTop RectTransform, +0x28 m_selectIndex (x, y)).
 // A tap on a cell moves the cursor there at once: SetIndexInstant 0x1e53440 + SetSelectColor 0x2032070 and m_result 0x1000
 // (what KeyLeft / ... do after MoveCursor); a tap on the current cell is A.
-static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c || !mem_ok(c)) return 0; u64 ct=RD64(c+0x20);
-  if(!uobj_ok(ct)) return 0; u64 par=u_parent(ct); if(!uobj_ok(par)) return 0;
-  static const float cx[4]={-213.f,-71.f,71.f,213.f}, cy[4]={204.f,62.f,-80.f,-222.f};
-  int nx=RDS32(c+0x10), ny=RDS32(c+0x14); if(nx<1 || ny<1) return 0; if(nx>4) nx=4; if(ny>4) ny=4;
-  int best=-1; float bd=1e12f, ax=0, ay=0, bx=0, by=0;
-  for(int j=0;j<ny;j++) for(int i=0;i<nx;i++){ V3 v={cx[i],cy[j],0.f}; float sx,sy; to720(0,u_tpoint(par,v),&sx,&sy);
-    if(!i && !j){ ax=sx; ay=sy; } if(i==1 && !j){ bx=sx; by=sy; }
-    float dx=sx-x, dy=sy-y, d=dx*dx+dy*dy; if(d<bd){ bd=d; best=j*nx+i; } }
-  float sp=(bx-ax)*(bx-ax)+(by-ay)*(by-ay); if(nx<2) sp=80.f*80.f;
-  if(best<0 || bd>sp*0.36f){   // not on a cell (within 0.6 of the cell spacing): well away from the palette (no Back prompt) = B
-    float s=f_sqrt(sp), lx=ax-s, rx=ax+s*(float)nx, ty=ay-s, by2=ay+s*(float)ny;
-    if(x<lx || x>rx || y<ty || y>by2) return 1; return 0; }   // off the palette: nothing (taps are never B)
+// The cells are the menu's +0x78 ColorPalette (List<MascotColorChangeItemContent>, one MonoBehaviour per cell, row-major as the
+// cursor index): a tap counts on the cell whose box holds it, else the nearest cell within half a gap of its edge; a tap on
+// the current cell is A.
+static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c || !mem_ok(c)) return 0;
+  u64 l=RD64(p+0x78); int n=list_n(l); if(n<1 || n>32) return 0; int nx=RDS32(c+0x10); if(nx<1) nx=1;
+  int best=-1; float bd=1e12f;
+  for(int k=0;k<n;k++){ u64 it=list_at(l,k); if(!uobj_ok(it)) continue; float x0,y0,x1,y1; if(!tr_box(u_transform(it),0,&x0,&y0,&x1,&y1) || x1<=x0) continue;
+    float dx= x<x0 ? x0-x : x>x1 ? x-x1 : 0.f, dy= y<y0 ? y0-y : y>y1 ? y-y1 : 0.f, d=dx*dx+dy*dy;
+    float g=(x1-x0)*0.25f; if(d<=g*g && d<bd){ bd=d; best=k; } }
+  if(best<0) return 0;   // off the cells: nothing (taps are never B)
   int cur=RDS32(c+0x2c)*nx+RDS32(c+0x28);
   if(best==cur){ tm_log2("colour: A",best,0); press(BTN_A); return 1; }
   ((void(*)(u64,int,u64))M(0x1e53440))(c,best,0); ((void(*)(u64,u64))M(0x2032070))(p,0); WR32(p+0x80,0x1000);
@@ -316,31 +313,32 @@ static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); i
   return 1; }
 
 // ---- Ally Notebook (App.FriendListSequence: +0x78 m_FriendListObject "NotebookRoot", +0x80 m_FriendListContent (+0x19
-// IsPageChanging), +0xc0 m_Page, +0xc4 m_NextPage, +0xc8 List<FriendListData> (+0x58 Country)). Under the root: ArrowGrp /
-// ArrowL, ArrowR (= L / R, Cycle Allies) and Book/Contents/Index/<country> tabs, Index child k = country k (Lithos, Filene,
-// Brodia, Ircion, Solum, Other; checked for Other = 5), only the countries with allies active. A tap on a tab presses ZR / ZL
-// (Cycle Countries, towards the tab) one page change at a time until the page's country is the tab's; elsewhere A (zoom).
-static u64 g_nb_seq; static int g_nb_target, g_nb_dir, g_nb_tries, g_nb_wait;
-static int nb_country(u64 p){ u64 l=RD64(p+0xc8); int pg=RDS32(p+0xc0); u64 d=list_at(l,pg); return d && mem_ok(d) ? (int)*(volatile signed char*)(d+0x58) : -1; }
+// IsPageChanging), +0xc0 m_Page, +0xc4 m_NextPage, +0xc8 List<FriendListData> (+0x58 Country, +0x10.. Pid: one entry per page,
+// an ally can have several pages)). Under the root: ArrowGrp / ArrowL, ArrowR and Book/Contents/Index/<country> tabs, Index
+// child k = country k (Lithos, Filene, Brodia, Ircion, Solum, Other; checked for Other = 5), only the countries with allies
+// active. TickMain (label 3 Main) turns the page itself whenever m_NextPage != m_Page (Jump to PreparePageChange); its L / R skip
+// the ally's other pages (they step to the next Pid) and ZL / ZR to the next country. So a tap writes m_NextPage: the arrows the
+// page next to this one (every page, wrapping like GetNextPage / GetPrevPage), a tab that country's first page: one page turn.
+static int nb_country_at(u64 p,int pg){ u64 d=list_at(RD64(p+0xc8),pg); return d && mem_ok(d) ? (int)*(volatile signed char*)(d+0x58) : -1; }
+static int nb_country(u64 p){ return nb_country_at(p,RDS32(p+0xc0)); }
 static int nb_busy(u64 p){ u64 c=RD64(p+0x80); return RDS32(p+0xc0)!=RDS32(p+0xc4) || (uobj_ok(c) && RD8(c+0x19)); }
+static void nb_goto(u64 p,int pg){ int n=list_n(RD64(p+0xc8)); if(n<1) return; pg=((pg%n)+n)%n;
+  if(proc_label(p)!=3 || nb_busy(p) || pg==RDS32(p+0xc0)){ tm_log2("notebook: busy / same page",pg,RDS32(p+0xc0)); return; }
+  WR32(p+0xc4,(u32)pg); tm_log2("notebook page",pg,n); }
 static int notebook_tap(u64 p,float x,float y){ u64 go=RD64(p+0x78); u64 root= uobj_ok(go) ? u_go_transform(go) : 0;
   if(root){ u64 ag=tr_child_named(root,"ArrowGrp");
     if(ag && u_active(u_gameobject(ag))){ static const char* const an[2]={"ArrowL","ArrowR"};
       for(int k=0;k<2;k++){ u64 a=tr_child_named(ag,an[k]); float x0,y0,x1,y1;
         if(a && u_active(u_gameobject(a)) && tr_box(a,0,&x0,&y0,&x1,&y1) && x>=x0-20.f && x<x1+20.f && y>=y0-30.f && y<y1+30.f){
-          tm_log2("notebook arrow",k,0); press(k ? BTN_RB : BTN_LB); return 1; } } }
+          tm_log2("notebook arrow",k,0); nb_goto(p,RDS32(p+0xc0)+(k ? 1 : -1)); return 1; } } }
     u64 b=tr_child_named(root,"Book"), c= b ? tr_child_named(b,"Contents") : 0, ix= c ? tr_child_named(c,"Index") : 0;
-    if(ix){ int n=u_child_count(ix); if(n>8) n=8; int cur=nb_country(p); float cx=-1.f, tx=-1.f; int t=-1;
+    if(ix){ int n=u_child_count(ix); if(n>8) n=8; int cur=nb_country(p), t=-1;
       for(int k=0;k<n;k++){ u64 tb=u_child(ix,k); if(!uobj_ok(tb) || !u_active(u_gameobject(tb))) continue; float x0,y0,x1,y1;
-        if(!tr_box(tb,0,&x0,&y0,&x1,&y1)) continue; if(k==cur) cx=x0;
-        if(x>=x0 && x<x1 && y>=y0-6.f && y<y1+6.f){ t=k; tx=x0; } }
-      if(t>=0){ tm_log2("notebook country",t,cur); if(t!=cur){ g_nb_seq=p; g_nb_target=t; g_nb_dir= (cx>=0.f && tx<cx) ? -1 : 1; g_nb_tries=8; } return 1; } } }
+        if(!tr_box(tb,0,&x0,&y0,&x1,&y1)) continue; if(x>=x0 && x<x1 && y>=y0-6.f && y<y1+6.f) t=k; }
+      if(t>=0){ tm_log2("notebook country",t,cur);
+        if(t!=cur){ int np=list_n(RD64(p+0xc8)); for(int pg=0;pg<np && pg<512;pg++) if(nb_country_at(p,pg)==t){ nb_goto(p,pg); break; } }
+        return 1; } } }
   press(BTN_A); return 1; }
-static void notebook_frame(void){ u64 p=g_nb_seq; if(!p) return;
-  if(!mem_ok(p) || proc_find("FriendListSequence")!=p || g_nb_tries<=0){ g_nb_seq=0; return; }
-  if(g_nb_wait>0){ g_nb_wait--; return; } if(q_busy() || nb_busy(p)) return;
-  if(nb_country(p)==g_nb_target){ g_nb_seq=0; return; }
-  g_nb_tries--; g_nb_wait=12; press(g_nb_dir<0 ? BTN_ZL : BTN_ZR); }
 
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
@@ -358,6 +356,9 @@ static int screen_tap(float x,float y){ u64 p;
   // all tappable there): a tap on the page = A (zoom the portrait); the zoomed portrait (ProcZoom, no prompts) closes with A too
   if((p=proc_find("ProcZoom")) && !proc_sus(p) && proc_find("FriendListSequence")){ press(BTN_A); return 1; }
   if((p=proc_find("FriendListSequence")) && !proc_sus(p)) return notebook_tap(p,x,y);
+  if(ring_ref_tap(0,x,y)) return 1;   // Ring Reference with no list focused
+  // Somniel -> observing an animal (AnimalAccessSequence: "(A) Action", R View; drags turn the camera, touch.h): a tap is A
+  if((p=proc_find("AnimalAccessSequence")) && !proc_sus(p)){ tm_log2("animal: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
@@ -373,6 +374,8 @@ static int screen_tap(float x,float y){ u64 p;
   // Strength Training sit-ups / push-ups (SitUp.MuscleSitupSequence / PushUp.MusclePushupSequence, the "A" button on screen):
   // every tap is a press, short so fast tapping keeps up
   if(((p=proc_find("MuscleSitupSequence")) || (p=proc_find("MusclePushupSequence"))) && !proc_sus(p)){ q_push(BTN_A,2,1); return 1; }
+  // My Room -> Sleep: the wake-up scene (MyRoomWakeupSequence, a timeline with no prompt) skips on A: a tap is A
+  if((p=proc_find("MyRoomWakeupSequence")) && !proc_sus(p)){ tm_log2("wake-up: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
