@@ -25,7 +25,7 @@ static void on_tap(float x,float y){
 // pushes the stick the finger's way, one in the upper half the other way.
 #define CAM_DEAD 30.f
 #define CAM_GAIN 0.12f
-#define CAM_YAW_STEP 128.f
+#define CAM_YAW_STEP 217.6f   // 17% of the 1280 px screen width per push (user, 2026-11-11; was 128 as in Three Houses)
 #define BTN_RS_LEFT (1ul<<20)
 #define BTN_RS_RIGHT (1ul<<22)
 static int t_cam_steps, t_cam_ysign;
@@ -56,7 +56,7 @@ static float cam_drive(float e,float full){ if(e>-0.5f && e<0.5f) return 0.f; fl
 // Set(value, time) (vtable entry at klass+0x198, what SetAngleY / SetAngleX 0x2d7dcb0 / 0x2d7dcd0 call with time 0), eased over
 // HUB_EASE s. Rates per px as in Three Houses (0.003 / 0.0045 rad), times Settings -> Touchscreen -> Horizontal / Vertical
 // Camera Sensitivity (cam_sens_gain, opts.h: 1.5 * (v+1) / 16, the FE3H slider curve).
-#define HUB_YAW_DPX 0.089f    // measured: the FE3H rate (0.1719) turned this camera ~1.9x as far per px
+#define HUB_YAW_DPX 0.178f    // measured: the FE3H rate (0.1719) turned this camera ~1.9x as far per px (0.089); doubled at the user's request
 #define HUB_PIT_DPX 0.1336f
 #define HUB_EASE 0.15f
 #define HUB_DEAD 16.f
@@ -94,18 +94,25 @@ static void touch_update(TouchScreenState1*ts){
         t_cam=1; t_cam_target=t_cam_tilt0; t_cam_steps=0; t_cam_ysign= t_y0>=360.f ? 1 : -1; tm_log2("map camera",(s64)t_cam_tilt0,0); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yawt,&t_hub_pitt)){
         t_cam=2; t_hlx=t_x0; t_hly=t_y0; tm_log2("hub camera",(s64)t_hub_yawt,(s64)t_hub_pitt); }
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence"))){
-        t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence") || proc_find("AnimalAccessSequence"))){
+        t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation / observing an animal ("R View")
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
       if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
-      if(t_cam==1){ int st=(int)(dx/CAM_YAW_STEP);   // whole 128 px steps of horizontal travel (truncated towards 0)
+      if(t_cam==1){ int st=(int)(dx/CAM_YAW_STEP);   // whole CAM_YAW_STEP px steps of horizontal travel (truncated towards 0)
         while(st>t_cam_steps){ q_push(t_cam_ysign>0 ? BTN_RS_RIGHT : BTN_RS_LEFT,2,4); t_cam_steps++; tm_log2("map yaw",t_cam_ysign,t_cam_steps); }
         while(st<t_cam_steps){ q_push(t_cam_ysign>0 ? BTN_RS_LEFT : BTN_RS_RIGHT,2,4); t_cam_steps--; tm_log2("map yaw",-t_cam_ysign,t_cam_steps); }
         float d= dy>CAM_DEAD ? dy-CAM_DEAD : dy<-CAM_DEAD ? dy+CAM_DEAD : 0.f; float t=t_cam_tilt0-d*CAM_GAIN;
         float lo=((float(*)(u64))M(0x29aa1d0))(0), hi=((float(*)(u64))M(0x29aa270))(0); if(hi>lo){ if(t<lo) t=lo; if(t>hi) t=hi; }
         t_cam_target=t; return; }
       if(t_cam==2){ hub_drag(x,y); return; } }
+    // Sommie Dress Up (MascotCustomizeMenu, MascotAccChangeMenu: "R Control Camera"): a drag that starts off the list drives the
+    // right stick like the colour screen (t_cam 4)
+    if(g_menu && !t_swiped){ float dx=x-t_x0, dy=y-t_y0;
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (str_eq(il_cname(g_menu),"MascotCustomizeMenu") || str_eq(il_cname(g_menu),"MascotAccChangeMenu"))){
+        float bx0,by0,bx1,by1; if(!menu_bounds(g_menu,&bx0,&by0,&bx1,&by1) || t_x0<bx0-10.f || t_x0>=bx1+10.f || t_y0<by0-10.f || t_y0>=by1+10.f){
+          t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera (menu)",0,0); } }
+      if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; } }
     // in a menu, a drag scrolls: one d-pad step per SWIPE_Y (rows) / SWIPE_X (columns) of travel, in the finger's direction
     // (drag down = cursor down, drag right = right; the user found the content-follows-finger direction inverted)
     // the steps stop at the first / last row instead of wrapping around (t_pred: the row the queued steps will reach)

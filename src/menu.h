@@ -85,10 +85,12 @@ static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   if(t<0) return 0;
   int was=RD8(m+0xc4)!=0, cur=RDS32(s+0x50); tm_log2("troop sort",t,cur);
   if(was && t==cur){ press(BTN_A); return 1; }
+  // one tap sorts (the user's list): step to the column, then A
   if(!was){ if(RDS32(m+0xa0)!=0) menu_select(m,0);
     ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEUP))(m,1,il_vmi(m,TL_MOVEUP)); if(!RD8(m+0xc4)) return 1; }
   for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
+  if(RDS32(s+0x50)==t) press(BTN_A);
   return 1; }
 // Units list "< Status >" arrows: switch to the previous / next tab and put the cursor on its first column (the Str of Basic
 // Stats ...). The sort menu's transform holds SortList / Sort0, Sort1, Sort2 (one per tab, the active one shown; their children are
@@ -133,7 +135,9 @@ typedef struct { const char*cls; u32 kind_off, icons_off; int list; } KindTabs;
 static const KindTabs k_kind_tabs[]={ {"InventoryPoolItemMenu",0xd8,0x108,1},
   {"WeaponShopBuyMenu",0xd0,0xe8}, {"ShopSellMenu",0xc4,0xe8}, {"AccessoryShopBuyMenu",0xd0,0xf0}, {"AccessoryShopChangeMenu",0xc4,0xe8},
   {"RefineShopRefineBaseMenu",0xc4,0xf0}, {"RefineShopEngraveItemSelectMenu",0xc4,0xf0}, {"RelayMessageMenu",0xc4,0xe8} };
-static int kind_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); const KindTabs*kt=0;
+static int kind_tabs_tap_ex(u64 m,float x,float y,int dry);
+static int kind_tabs_tap(u64 m,float x,float y){ return kind_tabs_tap_ex(m,x,y,0); }
+static int kind_tabs_tap_ex(u64 m,float x,float y,int dry){ const char*cn=il_cname(m); const KindTabs*kt=0;
   for(u32 j=0;j<sizeof(k_kind_tabs)/sizeof(k_kind_tabs[0]);j++) if(str_eq(cn,k_kind_tabs[j].cls)) kt=&k_kind_tabs[j];
   if(!kt) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 arr=RD64(c+kt->icons_off); if(!arr || !mem_ok(arr)) return 0;
   int n; if(kt->list){ n=list_n(arr); arr=RD64(arr+0x10); if(!arr || !mem_ok(arr)) return 0; } else n=(int)RD64(arr+0x18);
@@ -143,8 +147,9 @@ static int kind_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); cons
   for(int k=0;k<n;k++){ if(!kt->list){ u64 ki=RD64(arr+0x20+8ul*k); if(!ki || !mem_ok(ki)) continue; } u64 im=KT_IMG(k); if(!uobj_ok(im)) continue;
     u64 go=u_gameobject(im); if(!uobj_ok(go) || !u_active(go)) continue; float x0,y0,x1,y1;
     if(tr_box(u_transform(im),0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; tk=KT_KIND(k); break; } }
-  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("kind arrow",a,0);
+  if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; if(dry) return 1; tm_log2("kind arrow",a,0);
     int sl= a>0 ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); return 1; }
+  if(dry) return 1;
   tm_log2("kind tab",t,tk);
   for(int g=0;g<16;g++){ int cur=RDS32(m+kt->kind_off); if(cur==tk) break; int ci=-1;
     for(int k=0;k<n;k++){ if(KT_KIND(k)==cur){ ci=k; break; } }
@@ -167,15 +172,19 @@ static u64 proc_find(const char*n);   // screens.h
 // btn: the screen's change-menu button; or slot: the focused menu's own vtable method that switches (KeyRight 43 / KeyLeft 42)
 typedef struct { const char*from, *to; u64 btn; int slot; } MenuPair;
 static const MenuPair k_menu_pairs[]={ {"InventoryUnitItemMenu","InventoryPoolItemMenu",BTN_ZR,0}, {"InventoryPoolItemMenu","InventoryUnitItemMenu",BTN_ZL,0},
-  {"SkillEditEquipSkillMenu","SkillEditPoolSkillMenu",0,43}, {"SkillEditPoolSkillMenu","SkillEditEquipSkillMenu",0,42} };
-static u64 g_pend_menu; static int g_pend_idx, g_pend_ttl;
+  {"SkillEditEquipSkillMenu","SkillEditPoolSkillMenu",0,43}, {"SkillEditPoolSkillMenu","SkillEditEquipSkillMenu",0,42},
+  {"AnimalOutsideMenu","AnimalInsideMenu",0,43}, {"AnimalInsideMenu","AnimalOutsideMenu",0,42} };   // stable: Grazing | Stabled
+static u64 g_pend_menu; static int g_pend_idx, g_pend_ttl, g_pend_tabs; static float g_pend_x, g_pend_y;
+// a tap that switches lists makes the game's cursor jump instead of sliding over (hk_move_front: BasicMenu.MoveFrontCursorFrom)
+static int g_cursor_jump;
+static u64 g_rank_menu; static int g_rank_idx, g_rank_ttl;
 static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
   // Trade (App.SortieSequenceTrade: +0x80 m_menuL, +0x88 m_menuR, both SortieTradeItemMenu): the focused side's own KeyRight /
   // KeyLeft (vtable 43 / 42) moves to the other side, as the d-pad does
   if(str_eq(cn,"SortieTradeItemMenu")){ u64 sq=proc_find("SortieSequenceTrade"); if(!sq || !mem_ok(sq)) return 0;
     u64 L=RD64(sq+0x80), R=RD64(sq+0x88); u64 o= m==L ? R : m==R ? L : 0; if(!o || !mem_ok(o)) return 0; int i=menu_hit(o,x,y); if(i<0) return 0;
     int sl= o==R ? 43 : 42; tm_log2("trade side",sl,i); ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl));
-    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; g_pend_tabs=0; g_cursor_jump=20; return 1; }
   // Pool (Refresh): the unit slot list (RefreshUnitSetMenu, +0xe0 m_DecideMenu) and the "Command" menu under it
   // (RefreshUnitSetDecideMenu; the d-pad moves the focus between them): a tap on the other one moves the focus there at once
   // with the slot list's own RefreshUnitSetMenu.FocusDecideMenu 0x22c52c0 / FocusThisMenu 0x22c5200
@@ -183,21 +192,38 @@ static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
     u64 sm= to_dec ? m : proc_find("RefreshUnitSetMenu"); if(!sm || !mem_ok(sm)) return 0; u64 o= to_dec ? RD64(sm+0xe0) : sm;
     if(!o || !mem_ok(o)) return 0; int i=menu_hit(o,x,y); if(i<0) return 0;
     tm_log2("refresh focus",to_dec,i); ((void(*)(u64,u64))M(to_dec ? 0x22c52c0 : 0x22c5200))(sm,0);
-    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; g_pend_tabs=0; g_cursor_jump=20; return 1; }
   for(u32 j=0;j<sizeof(k_menu_pairs)/sizeof(k_menu_pairs[0]);j++){ if(!str_eq(cn,k_menu_pairs[j].from)) continue;
-    u64 o=proc_find(k_menu_pairs[j].to); if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y); if(i<0) continue;
-    tm_log2("menu pair switch",(s64)j,i); int sl=k_menu_pairs[j].slot;
+    u64 o=proc_find(k_menu_pairs[j].to);
+    if(!o){ u64 sq=proc_find("AnimalMenuSequence");   // the stable's two lists aren't procs: AnimalMenuSequence +0x78 Inside, +0x80 Outside
+      if(sq && mem_ok(sq)) o= str_eq(k_menu_pairs[j].to,"AnimalInsideMenu") ? RD64(sq+0x78) : str_eq(k_menu_pairs[j].to,"AnimalOutsideMenu") ? RD64(sq+0x80) : 0; }
+    if(!o || !mem_ok(o)) continue; int i=menu_hit(o,x,y), tabs=0;
+    if(i<0){ tabs=kind_tabs_tap_ex(o,x,y,1); if(!tabs) continue; }   // or the other list's category tabs (convoy: from the unit's items)
+    tm_log2("menu pair switch",(s64)j,tabs ? 100 : i); int sl=k_menu_pairs[j].slot; g_cursor_jump=20;
     if(sl) ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); else press(k_menu_pairs[j].btn);
-    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; return 1; }
+    g_pend_menu=o; g_pend_idx=i; g_pend_ttl=30; g_pend_tabs=tabs; g_pend_x=x; g_pend_y=y; return 1; }
   return 0; }
 // Lists where the first tap only selects (a second tap on the selected row confirms): unit selection and save slots, as the
 // user asked; everything else confirms on the first tap.
 static int str_has(const char*s,const char*t){ for(;*s;s++){ const char*a=s,*b=t; while(*a && *b && *a==*b){ a++; b++; } if(!*b) return 1; } return 0; }
+// item lists the user asked to be two-tap (tasklist.md, 2026-11-11): the row the cursor is on still confirms with one tap
+static const char* const k_two_tap[]={
+  "ItemMenu", "MapTradeMenu", "AttackMenu", "RewindMenu",                                   // battle: Items, Trade, Attack, Time Crystal
+  "MyRoomRelianceSubSelect", "RelianceListMenu", "MyRoomWakeupSelectMenu", "MyRoomMovieMenu", "MyRoomSoundMenu",   // Somniel / My Room
+  "InventoryUnitItemMenu", "InventoryPoolItemMenu", "SortieTradeItemMenu", "RingSelectMenu", "UnitSelectRingMenu", // battle prep
+  "GmapTeleportMenu", "SolanelInfoMenu",                                                     // world map fast travel, Somniel map
+  "GiftMenu", "InvestmentMenu", "ItemShopBuyMenu", "WeaponShopBuyMenu", "ShopSellMenu",      // gifts, donations, shops
+  "AccessoryShopBuyMenu", "AccessoryShopChangeMenu",                                         // boutique
+  "SkillInheritanceMenu", "SkillEditEquipSkillMenu", "SkillEditPoolSkillMenu", "SynthesisRingBaseRingMenu",   // Ring Chamber
+  "MuscleStartMenu", "MuscleDifficultMenu", "AnimalInsideMenu", "AnimalOutsideMenu",         // strength training, stable
+  "MascotFoodSelectMenu", "MascotAccChangeMenu" };                                           // Sommie feed / accessories
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
   { u64 it=menu_item(m,0); if(it && str_eq(il_cname(it),"MonthMenuItem")) return 1; }
-  return str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu") || str_eq(c,"MyRoomRelianceSelect"); }
+  if(str_eq(c,"SaveDataMenu") || str_eq(c,"TroopListMenu") || str_eq(c,"SortieRelianceSelectionUnitMenu") || str_eq(c,"MyRoomRelianceSelect")) return 1;
+  for(u32 j=0;j<sizeof(k_two_tap)/sizeof(k_two_tap[0]);j++) if(str_eq(c,k_two_tap[j])) return 1;
+  return 0; }
 // ---- battle map Additional Info (ZR held: MapNavigationSequence with the tab row MapNavigationStatusMenu and the Minimap list
 // MapNavigationMiniMapMenu, both BasicMenus) ----
 // A tap on a tab / Minimap row selects it at once (no A: the screen shows them live); the "^" "v" arrows beside the Minimap list
@@ -233,6 +259,26 @@ static int nav_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
     return 1; }
   if(g_latch){ g_latch=0; tm_log2("nav: release ZR",0,0); }
   return 1; }
+// Ring Reference (App.RingListSequence; its skill list RingListSkillMenu (+0xc0) +0x10 m_Menu is the focused menu): the big
+// "<" ">" beside the portrait (+0xa0 CharaArrowGroup +0x10 m_RootObject: ArrowL / ArrowR) = d-pad Left / Right, the "< L  R >"
+// around the world name (+0x98 RelatedGroupWindow +0x10 m_RootObject "WdwTitle": ArrowL, L, R, ArrowR) = L / R. The game
+// rebuilds the list menu each page, so these are found from the sequence, not from the menu.
+static int ring_ref_tap(u64 m,float x,float y){ u64 sq=proc_find("RingListSequence"); if(!sq || !mem_ok(sq) || RDS32(sq+0x5c)) return 0;
+  u64 sk=RD64(sq+0xc0); if(!sk || !mem_ok(sk) || RD64(sk+0x10)!=m) return 0;
+  u64 ag=RD64(sq+0xa0), wg=RD64(sq+0x98); float x0,y0,x1,y1;
+  u64 ar= ag && mem_ok(ag) ? RD64(ag+0x10) : 0;
+  if(uobj_ok(ar) && u_active(ar)){ u64 t=u_go_transform(ar); static const char* const an[2]={"ArrowL","ArrowR"};
+    for(int k=0;k<2;k++){ u64 a=tr_child_named(t,an[k]); if(a && u_active(u_gameobject(a)) && tr_box(a,0,&x0,&y0,&x1,&y1) && x>=x0-12.f && x<x1+12.f && y>=y0-12.f && y<y1+12.f){
+        tm_log2("ring ref arrow",k,0); press(k ? BTN_R : BTN_L); return 1; } } }
+  u64 wr= wg && mem_ok(wg) ? RD64(wg+0x10) : 0;
+  if(uobj_ok(wr) && u_active(wr)){ u64 t=u_go_transform(wr); static const char* const wn[4]={"ArrowL","L","R","ArrowR"};
+    for(int k=0;k<4;k++){ u64 a=tr_child_named(t,wn[k]); if(a && u_active(u_gameobject(a)) && tr_box(a,0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-14.f && y<y1+14.f){
+        tm_log2("ring ref world",k,0); press(k<2 ? BTN_LB : BTN_RB); return 1; } } }
+  return 0; }
+static void details_at(float x,float y,u64 btn);   // help.h
+static int help_known_miss(u64 m,float x,float y);
+static const char* const k_details_menus[]={ "GodRoomUnitSelectMenu", "UnitSelectMenu", "UnitSelectSortieMenu", "RingSelectMenu" };   // Ring Chamber; prep Inventory / Emblem Rings, Unit Selection, ring picker
+static int details_menu(u64 m){ const char*c=il_cname(m); for(u32 j=0;j<sizeof(k_details_menus)/sizeof(k_details_menus[0]);j++) if(str_eq(c,k_details_menus[j])) return 1; return 0; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
   // message-only dialogs ("You've received a special gift!" ItemListYesNoDialog, ...): every row is an invisible DummyMenuItem
@@ -240,10 +286,13 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(i<0){ int n=menu_items(m), d=0; for(int k=0;k<n && k<16;k++){ u64 it=menu_item(m,k); if(it && str_eq(il_cname(it),"DummyMenuItem")) d++; }
     if(n>0 && d==n){ tm_log2("message dialog: A",n,0); press(BTN_A); return 1; } }
   if(nav_tap(m,x,y)) return 1;
+  if(i<0 && ring_ref_tap(m,x,y)) return 1;
   // battle map unit -> Items (ItemMenu): the "In-Use Stats" panel and the text under the rows swap with X (no prompt shown):
   // a tap there (the rows' width, below the last row) is X
-  if(i<0 && str_eq(il_cname(m),"ItemMenu")){ float bx0,by0,bx1,by1;
-    if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && x>=bx0-10.f && x<bx1+40.f && y>by1){ tm_log2("item panel: X",0,0); press(BTN_X); return 1; } }
+  // also prep Manage Items' In-Use Stats (X Cycle Info) under the unit's items, whichever list has the focus
+  if(i<0 && (str_eq(il_cname(m),"ItemMenu") || str_eq(il_cname(m),"InventoryUnitItemMenu") || str_eq(il_cname(m),"InventoryPoolItemMenu"))){ float bx0,by0,bx1,by1;
+    u64 um= str_eq(il_cname(m),"InventoryPoolItemMenu") ? proc_find("InventoryUnitItemMenu") : m;
+    if(um && mem_ok(um) && menu_bounds(um,&bx0,&by0,&bx1,&by1) && x>=bx0-10.f && x<bx1+40.f && y>by1){ tm_log2("item panel: X",0,0); press(BTN_X); return 1; } }
   // Tower of Trials -> Tempest Trial -> map -> difficulty (ChallengeDifficultyMenu): one row without a box ("Difficulty < 14 >",
   // its arrows are page arrows = d-pad Left / Right) and the "Fight!" button under it (Contents/Viewport/Content/List1), which
   // is the row's A: a tap on Fight! = A
@@ -266,20 +315,46 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
       if(uobj_ok(c)){ u64 tr=u_transform(c); for(int k=0;k<2 && !ar;k++){ u64 pa=u_parent(tr); if(!uobj_ok(pa)) break; tr=pa; g_arrow_n=0; ar=arrow_walk(tr,x,y,0); } }
       u64 mc=RD64(m+0x70); if(!ar && uobj_ok(mc)){ g_arrow_n=0; ar=arrow_walk(u_transform(mc),x,y,0); } }   // or the menu content root
     if(ar){ tm_log2("value arrow",ar,0); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; } }
+  // unit lists with an "X Details" prompt (Ring Chamber unit list, battle prep): a tap on the info beside the list opens Details
+  // on the element there at once (details_at: X, then the Details cursor jumps to it)
+  if(i<0 && details_menu(m)){ float bx0,by0,bx1,by1; if(menu_bounds(m,&bx0,&by0,&bx1,&by1) && (x>=bx1+4.f || x<bx0-4.f) && y>80.f){
+      if(help_known_miss(m,x,y)){ tm_log2("menu details: nothing there",(s64)x,(s64)y); return 1; }
+      tm_log2("menu details at",(s64)x,(s64)y); details_at(x,y,BTN_X); return 1; } }
   // a tap off the items does nothing (taps are A, never B, unless a screen says otherwise; the user's rule)
   if(i<0) return 1;
   int ar=item_arrow(menu_item(m,i),x,y);
   if(ar){ if(i!=RDS32(m+0xa0)) menu_select(m,i); press(ar==-2?BTN_U: ar==2?BTN_D: ar<0?BTN_L:BTN_R); return 1; }   // value arrow: select the row, step its value
+  // Support / Bond partner rows and Wake-Up Events (MyRoomRelianceSubSelect / MyRoomWakeupSelectMenu): A on a row starts its rank
+  // choice (+0xc4 IsRankPhase, the row stays marked IsSelected); the row's own BCall ends it. A tap on another row during it
+  // presses B first and selects the row once the rank choice is over, so only one row is ever marked.
+  if((str_eq(il_cname(m),"MyRoomRelianceSubSelect") || str_eq(il_cname(m),"MyRoomWakeupSelectMenu")) && RD8(m+0xc4) && i!=RDS32(m+0xa0)){
+    tm_log2("rank phase: B, then row",i,0); press(BTN_B); g_rank_menu=m; g_rank_idx=i; g_rank_ttl=60; return 1; }
   if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
   menu_select(m,i); if(!menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
   return 1; }
 
-static void menu_init(void){ o_tickinput=hook_install(M(BM_TICKINPUT),(u64)&hk_tickinput);
+// BasicMenu.MoveFrontCursorFrom(fromMenuItem, frame) 0x245d710: the cursor slides from the other list over `frame` frames; one frame
+// right after a tap switched lists
+static u64 o_move_front;
+// BasicMenuContent (+0x70) +0x80 Cursor: +0x88 m_frontCursorMoveTick, +0x8c m_frontCursorMoveFrame. Setting the tick near the end
+// lets the cursor's own Tick finish the move next frame (a 1-frame move left the arrow behind)
+static int g_cj_mode;   // debug "cjmode": 0 finish via the tick, 1 no slide at all, 2 a 1-frame slide, 3 untouched
+static void hk_move_front(u64 m,u64 from,float frame,u64 mi){
+  if(g_cursor_jump>0 && g_cj_mode==1) return;
+  if(g_cursor_jump>0 && g_cj_mode==2 && frame>1.f) frame=1.f;
+  ((void(*)(u64,u64,float,u64))o_move_front)(m,from,frame,mi);
+  if(g_cursor_jump<=0 || g_cj_mode) return; u64 mc=RD64(m+0x70); u64 cu= uobj_ok(mc) ? RD64(mc+0x80) : 0; if(!cu || !mem_ok(cu)) return;
+  float f=*(volatile float*)(cu+0x8c); if(f>1.f) *(volatile float*)(cu+0x88)=f-1.f; }
+static void menu_init(void){ o_tickinput=hook_install(M(BM_TICKINPUT),(u64)&hk_tickinput); o_move_front=hook_install(M(0x245d710),(u64)&hk_move_front);
   Buf b={0}; bstr(&b,"[engagetouch] hook TickInput "); bhex(&b,o_tickinput); bstr(&b," err "); bhex(&b,g_hook_err); bstr(&b," rc "); bhex(&b,g_patch_rc); bflush(&b); }
 static int g_latch_gone;
 static void menu_frame(void){ g_menu=g_menu_tick; g_menu_tick=0;
+  if(g_rank_menu){ if(--g_rank_ttl<=0) g_rank_menu=0;
+    else if(g_menu==g_rank_menu && !q_busy() && !RD8(g_menu+0xc4)){ menu_select(g_menu,g_rank_idx); g_rank_menu=0; } }
   if(g_latch){ if(proc_find("MapNavigationSequence")) g_latch_gone=0; else if(++g_latch_gone>45){ g_latch=0; g_latch_gone=0; } }   // the screen never came or is gone: let go
-  if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_idx!=RDS32(g_menu+0xa0)) menu_select(g_menu,g_pend_idx);
+  if(g_cursor_jump>0) g_cursor_jump--;
+  if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_tabs){ kind_tabs_tap(g_menu,g_pend_x,g_pend_y); g_pend_menu=0; return; }
+      if(g_pend_idx!=RDS32(g_menu+0xa0)) menu_select(g_menu,g_pend_idx);
       if(!menu_two_tap(g_menu)) press(BTN_A); g_pend_menu=0; } else if(--g_pend_ttl<=0) g_pend_menu=0; } }
 
 #ifdef TM_DEBUG

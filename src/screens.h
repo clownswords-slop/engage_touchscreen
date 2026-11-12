@@ -133,7 +133,12 @@ static int weapon_arrow_find(u64 tr,int d,float x,float y){ int n=u_child_count(
 static u64 command_btn(u64 ctr,float x,float y);
 static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq(il_cname(r),"MapBattleInfoRoot")) return 0;
   u64 go=u_gameobject(r); if(!uobj_ok(go) || !u_active(go)) return 0;
-  if(go_hit(RD64(r+0x20),x,y,8.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
+  // the second command (m_CommandSubRoot, e.g. Engage when Engage is possible) sits right under "(A) Attack": test its exact box
+  // first, so the slop around Attack can't take taps on its top half
+  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,0.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;
+      tm_log2("forecast subcommand",(s64)b,1); press(b); return 1; } }
+  if(go_hit(RD64(r+0x20),x,y,0.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
+  if(!go_hit(RD64(r+0x28),x,y,8.f) && go_hit(RD64(r+0x20),x,y,8.f)){ tm_log2("forecast command",0,1); press(BTN_A); return 1; }
   { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
       if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
   // the second command beside it (m_CommandSubRoot, e.g. Engage Attack when Engage is possible): the button its children name
@@ -267,7 +272,7 @@ static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c ||
   int cur=RDS32(c+0x2c)*nx+RDS32(c+0x28);
   if(best==cur){ tm_log2("colour: A",best,0); press(BTN_A); return 1; }
   ((void(*)(u64,int,u64))M(0x1e53440))(c,best,0); ((void(*)(u64,u64))M(0x2032070))(p,0); WR32(p+0x80,0x1000);
-  tm_log2("colour cell",best,0); return 1; }
+  tm_log2("colour cell: A",best,0); press(BTN_A); return 1; }   // one tap picks and confirms (the user's list)
 
 // ---- Profile Card -> Stamps (ProfileCardStampMenu, a ProcInst): +0x70 m_StampRoot (ProfileCardStampRoot: +0x30
 // m_StampRectTransform = the stamp cursor), +0x78 m_CardRoot, +0xc8 m_EditMode. The stick / d-pad move the cursor (DirCall:
@@ -296,6 +301,7 @@ static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); i
     float x0,y0,x1,y1; if(!tr_box(u_go_transform(go),0,&x0,&y0,&x1,&y1) || y1<=0.f || y0>=720.f) continue;   // on screen only (one waits above for the scroll)
     wy[i]=y0; if(x>=x0 && x<x1 && y>=y0 && y<y1) hit=i; }
   if(hit<0) return 1;
+  // two taps (the user's list): a tap on the entry the cursor is on replays it (A); any other entry only gets the cursor
   // the window the cursor is on (+0x30 m_Cursor: +0x10 m_RootObject), then step by the rank difference (empty windows don't matter)
   int ch=-1; { u64 cu=RD64(tl+0x30); u64 cg= cu && mem_ok(cu) ? RD64(cu+0x10) : 0; float a,b,e,f;
     if(uobj_ok(cg) && tr_box(u_go_transform(cg),0,&a,&b,&e,&f)){ float cy=(b+f)*0.5f; float bd=1e9f;
@@ -304,9 +310,37 @@ static int talklog_tap(float x,float y){ u64 tl=cell_inst(0x62a4b18,0x21fe50); i
   if(ch<0) return 1;
   int rh=0, rc=0; for(int i=0;i<n;i++){ if(wy[i]<wy[hit]) rh++; if(wy[i]<wy[ch]) rc++; }
   int cur=RDS32(tl+0x78), want=cur+(rh-rc); tm_log2("talk log entry",want,cur);
+  if(want==cur){ press(BTN_A); return 1; }
   for(int g=0;g<8 && RDS32(tl+0x78)<want;g++){ int c=RDS32(tl+0x78); ((int(*)(u64,int,int,u64))M(0x20c2290))(tl,1,1,0); if(RDS32(tl+0x78)==c) break; }
   for(int g=0;g<8 && RDS32(tl+0x78)>want;g++){ int c=RDS32(tl+0x78); ((void(*)(u64,int,u64))M(0x20c2010))(tl,1,0); if(RDS32(tl+0x78)==c) break; }
+  return 1; }
+
+// ---- Ally Notebook (App.FriendListSequence: +0x78 m_FriendListObject "NotebookRoot", +0x80 m_FriendListContent (+0x19
+// IsPageChanging), +0xc0 m_Page, +0xc4 m_NextPage, +0xc8 List<FriendListData> (+0x58 Country)). Under the root: ArrowGrp /
+// ArrowL, ArrowR (= L / R, Cycle Allies) and Book/Contents/Index/<country> tabs, Index child k = country k (Lithos, Filene,
+// Brodia, Ircion, Solum, Other; checked for Other = 5), only the countries with allies active. A tap on a tab presses ZR / ZL
+// (Cycle Countries, towards the tab) one page change at a time until the page's country is the tab's; elsewhere A (zoom).
+static u64 g_nb_seq; static int g_nb_target, g_nb_dir, g_nb_tries, g_nb_wait;
+static int nb_country(u64 p){ u64 l=RD64(p+0xc8); int pg=RDS32(p+0xc0); u64 d=list_at(l,pg); return d && mem_ok(d) ? (int)*(volatile signed char*)(d+0x58) : -1; }
+static int nb_busy(u64 p){ u64 c=RD64(p+0x80); return RDS32(p+0xc0)!=RDS32(p+0xc4) || (uobj_ok(c) && RD8(c+0x19)); }
+static int notebook_tap(u64 p,float x,float y){ u64 go=RD64(p+0x78); u64 root= uobj_ok(go) ? u_go_transform(go) : 0;
+  if(root){ u64 ag=tr_child_named(root,"ArrowGrp");
+    if(ag && u_active(u_gameobject(ag))){ static const char* const an[2]={"ArrowL","ArrowR"};
+      for(int k=0;k<2;k++){ u64 a=tr_child_named(ag,an[k]); float x0,y0,x1,y1;
+        if(a && u_active(u_gameobject(a)) && tr_box(a,0,&x0,&y0,&x1,&y1) && x>=x0-20.f && x<x1+20.f && y>=y0-30.f && y<y1+30.f){
+          tm_log2("notebook arrow",k,0); press(k ? BTN_RB : BTN_LB); return 1; } } }
+    u64 b=tr_child_named(root,"Book"), c= b ? tr_child_named(b,"Contents") : 0, ix= c ? tr_child_named(c,"Index") : 0;
+    if(ix){ int n=u_child_count(ix); if(n>8) n=8; int cur=nb_country(p); float cx=-1.f, tx=-1.f; int t=-1;
+      for(int k=0;k<n;k++){ u64 tb=u_child(ix,k); if(!uobj_ok(tb) || !u_active(u_gameobject(tb))) continue; float x0,y0,x1,y1;
+        if(!tr_box(tb,0,&x0,&y0,&x1,&y1)) continue; if(k==cur) cx=x0;
+        if(x>=x0 && x<x1 && y>=y0-6.f && y<y1+6.f){ t=k; tx=x0; } }
+      if(t>=0){ tm_log2("notebook country",t,cur); if(t!=cur){ g_nb_seq=p; g_nb_target=t; g_nb_dir= (cx>=0.f && tx<cx) ? -1 : 1; g_nb_tries=8; } return 1; } } }
   press(BTN_A); return 1; }
+static void notebook_frame(void){ u64 p=g_nb_seq; if(!p) return;
+  if(!mem_ok(p) || proc_find("FriendListSequence")!=p || g_nb_tries<=0){ g_nb_seq=0; return; }
+  if(g_nb_wait>0){ g_nb_wait--; return; } if(q_busy() || nb_busy(p)) return;
+  if(nb_country(p)==g_nb_target){ g_nb_seq=0; return; }
+  g_nb_tries--; g_nb_wait=12; press(g_nb_dir<0 ? BTN_ZL : BTN_ZR); }
 
 // tap dispatcher for everything that isn't the focused BasicMenu
 static int screen_tap(float x,float y){ u64 p;
@@ -323,16 +357,22 @@ static int screen_tap(float x,float y){ u64 p;
   // Ally Notebook (FriendListSequence: "X List / A Zoom Portrait / L R Cycle Allies / ZL ZR Cycle Countries" in the title bar,
   // all tappable there): a tap on the page = A (zoom the portrait); the zoomed portrait (ProcZoom, no prompts) closes with A too
   if((p=proc_find("ProcZoom")) && !proc_sus(p) && proc_find("FriendListSequence")){ press(BTN_A); return 1; }
-  if((p=proc_find("FriendListSequence")) && !proc_sus(p)){ press(BTN_A); return 1; }
+  if((p=proc_find("FriendListSequence")) && !proc_sus(p)) return notebook_tap(p,x,y);
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
   if((p=proc_find("TalkLogSequence")) && !proc_sus(p)) return talklog_tap(x,y);
-  if((p=proc_find("TalkKeyWait"))){ press(BTN_A); return 1; }
+  // dialogue (TalkKeyWait runs while the text is written too): A completes the text / next page. A tap holds A for 6 frames like a
+  // finger on the button (a 2-frame press could fall in the moments a new page ignores input: "taps sometimes don't register")
+  if((p=proc_find("TalkKeyWait"))){ tm_log2("talk: A",0,0); q_push(BTN_A,6,3); return 1; }
+  if((p=proc_find("TalkSequence")) && !proc_sus(p)){ tm_log2("talk writing: A",0,0); q_push(BTN_A,6,3); return 1; }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
      || proc_find("ProcRelayResult") || proc_find("GodGrowSequence") || proc_find("RingGachaSequence") || proc_find("RingSynthesisSequence") || proc_find("RefineShopEngraveDemo")   /* Create / Meld Bond Rings reveal: (A) Next / (A) Confirm; Smithy engrave result (no prompt, waits for A) */
      || proc_find("GameMessage") || proc_find("DemoTelop")){   /* "Vulnerary obtained." (App.GameMessage under ItemGainSequence), "Cafe Terrace is now open." (HubPlayCamera+DemoTelop) wait for A */ tm_log2("bond popup: A",0,0); press(BTN_A); return 1; }
+  // Strength Training sit-ups / push-ups (SitUp.MuscleSitupSequence / PushUp.MusclePushupSequence, the "A" button on screen):
+  // every tap is a press, short so fast tapping keeps up
+  if(((p=proc_find("MuscleSitupSequence")) || (p=proc_find("MusclePushupSequence"))) && !proc_sus(p)){ q_push(BTN_A,2,1); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
@@ -346,4 +386,4 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("GmapSequence")) && !proc_sus(p)) return gmap_tap(p,x,y);
   if((p=proc_find("EventSequence"))){ press(BTN_A); return 1; }
   if((p=proc_find("MapSequence")) && (proc_label(p)==17 || proc_label(p)==18)){ press(BTN_A); return 1; }   // "STAGE CLEAR!" (Complete) / "GAME OVER" (GameOver) wait for A
-  return 0; }
+  tm_log2("screen tap: unhandled",0,0); return 0; }

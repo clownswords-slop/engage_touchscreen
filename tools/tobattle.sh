@@ -19,4 +19,5 @@ for i in $(seq 1 8); do "$C" "menu" | grep -q "GmapMenu " && break
 if ! "$C" "menu" | grep -q EnterChapterItem; then "$C" "btn 2 4" >/dev/null; sleep 2; "$C" "btn 64 4" >/dev/null; sleep 6; "$C" "tap 640 360" >/dev/null; sleep 3; fi
 tapr EnterChapterItem || exit 1; sleep 3; "$C" "menu" | grep -q EnterChapterDialogMainItemYes && tapr EnterChapterDialogMainItemYes; sleep 6
 "$D/explore.sh" 150 >/dev/null
+[ -n "$PREP" ] && { echo "at prep"; exit 0; }
 if "$C" "menu" | grep -q StartMenuItem; then tapr StartMenuItem; sleep 4; tapr ConfirmYesDialogItem; sleep 6; fi; "$D/advance.sh" | tail -1

@@ -19,15 +19,16 @@ static const char* const cam_sens_title[2]={ "Horizontal Camera Sensitivity", "V
 // Switch rows (ConfigMethodKind Switch = 0: m_CommandText shows the choice, Left / Right step it): Tap To Move (as in Three
 // Houses: 0 Normal, 1 Instant, 2 Instant when safe) and Tap To Skip (Battle) (0 Off: a drag during an attack moves the camera,
 // 1 On: a tap skips it).
-static const int k_opt_max[OPT_N]={2,1};   // g_opt / OPT_N live in core.h (the screens read them)
-static const char* const opt_title[OPT_N]={ "Tap To Move", "Tap To Skip (Battle)" };
-static const char* const opt_key[OPT_N]={ "tap_to_move=", "tap_to_skip=" };
-static const char* const opt_name[OPT_N][3]={ { "Normal", "Instant", "Instant when safe" }, { "Off", "On", 0 } };
+static const int k_opt_max[OPT_N]={2,1,1};   // g_opt / OPT_N live in core.h (the screens read them)
+static const char* const opt_title[OPT_N]={ "Tap To Move", "Tap To Skip (Attack)", "Tile Selection" };
+static const char* const opt_key[OPT_N]={ "tap_to_move=", "tap_to_skip=", "tile_select=" };
+static const char* const opt_name[OPT_N][3]={ { "Normal", "Instant", "Instant when safe" }, { "Off", "On", 0 }, { "Normal", "Flat", 0 } };
 static const char* const opt_desc[OPT_N][3]={
   { "Tapping a tile with a unit selected does not confirm movement.",
     "Tapping a tile with a unit selected confirms movement.",
     "Tapping a tile with a unit selected confirms movement if it would not place the unit in range of an enemy's attack." },
-  { "Tapping during an attack controls the camera.", "Tapping during an attack skips it.", 0 } };
+  { "Tapping and dragging during an attack controls the camera.", "Tapping during an attack skips it.", 0 },
+  { "Tapping to select a tile respects its height.", "Tapping to select a tile picks from a flat grid.", 0 } };
 static const char* const cam_sens_desc[2]={ "Changes the horizontal sensitivity of the camera while controlling Alear.",
   "Changes the vertical sensitivity of the camera while controlling Alear." };
 

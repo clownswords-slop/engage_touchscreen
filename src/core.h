@@ -23,10 +23,11 @@ static u64 g_poll;           // input frames (one per frame of the game's input 
 static int g_touch_mode;     // 1 after a touch, 0 after real pad input
 // Settings -> Touchscreen switch options (opts.h): [0] Tap To Move (0 Normal, 1 Instant, 2 Instant when safe), [1] Tap To Skip
 // (Battle) (0 Off: drags move the combat camera, 1 On: a tap skips the animation)
-#define OPT_N 2
+#define OPT_N 3
 static int g_opt[OPT_N];
 #define g_tap_move g_opt[0]
 #define g_tap_skip g_opt[1]
+#define g_tile_sel g_opt[2]   // Tile Selection: 0 Normal (the ray hits the terrain as drawn), 1 Flat (a level grid)
 
 #define RD8(a) (*(volatile u8*)(a))
 #define RD32(a) (*(volatile u32*)(a))

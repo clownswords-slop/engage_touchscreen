@@ -98,7 +98,7 @@ static void frame_tick(void){
 #endif
   if(GetTouchN){ int n=GetTouchN(tsh,16); if(n>16) n=16;
     for(int i=n-1;i>=0;i--) if(tsh[i].sampling>last_samp){ last_samp=tsh[i].sampling; touch_update(&tsh[i]); } }
-  cursor_pend_frame(); details_frame(); g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
+  cursor_pend_frame(); details_frame(); notebook_frame(); g_inject=q_tick(); rs_tick(); gmap_frame(); cam_frame(); if(g_cam_rs_x||g_cam_rs_y){ g_rs_x=g_cam_rs_x; g_rs_y=g_cam_rs_y; }
 #ifdef TM_DEBUG
   g_inject|=cur_inject_dbg;
 #endif
@@ -190,6 +190,7 @@ static void dbg_ext(const char*p){
     WOpt o={0}; for(u64 off=0;off<n;off+=sizeof(mb)){ u64 k=n-off; if(k>sizeof(mb)) k=sizeof(mb); if(mem_ok(a+off)) for(u64 i=0;i<k;i++) mb[i]=RD8(a+off+i); else for(u64 i=0;i<k;i++) mb[i]=0; FsWrite(h,(s64)off,mb,k,&o); }
     WOpt f={1}; FsWrite(h,0,mb,0,&f); FsClose(h); os("mfile ok\n"); }
   else if(starts(p,"polls")){ os("poll "); oi((s64)g_poll); os(" t "); oi((s64)(ticks()/19200)); oc('\n'); }
+  else if(starts(p,"cjmode")){ p+=6; g_cj_mode=(int)parse_num(&p); os("cjmode "); oi(g_cj_mode); oc(10); }
   else if(starts(p,"tlog")){ p+=4; tlog=(int)parse_num(&p); os("tlog "); oi(tlog); oc('\n'); }
   else if(starts(p,"procs")){ p+=5; int maxd=(int)parse_num(&p); if(!maxd) maxd=12;   // the ProcInst trees (Proc.GetRoot 0..2)
     for(int r=0;r<3;r++){ u64 root=((u64(*)(int,u64))M(0x281aac0))(r,0); os("root "); oi(r); oc('\n');
