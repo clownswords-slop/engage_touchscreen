@@ -42,6 +42,7 @@ static u64 hubcam(void){ u64 c=g_hubcam; if(!c || g_poll-g_hubcam_poll>4 || !uob
 static u64 g_hubhelp, o_hubhelp_update, g_hubhelp_poll;
 static void hk_hubhelp_update(u64 self,u64 mi){ g_hubhelp=self; g_hubhelp_poll=g_poll; ((void(*)(u64,u64))o_hubhelp_update)(self,mi); }
 static void map_hooks_init(void){ o_def_opmode=hook_install(M(0x265b9f0),(u64)&hk_def_opmode); o_tickmove=hook_install(M(0x29c07b0),(u64)&hk_tickmove);
+  o_setpos=hook_install(M(0x299a6e0),(u64)&hk_setpos); o_camupd=hook_install(M(0x299d1b0),(u64)&hk_camupd);
   o_hubcam_update=hook_install(M(0x2d7a2b0),(u64)&hk_hubcam_update);
   o_hubhelp_update=hook_install(M(0x216f4c0),(u64)&hk_hubhelp_update); }
 static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M(0x265baa0))(h,2,0); }
