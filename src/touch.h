@@ -80,6 +80,9 @@ static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
   if(t_cam==4){ float sx=t_sdx*STICK_DRAG_GAIN, sy=t_sdy*STICK_DRAG_GAIN; t_sdx=t_sdy=0.f;   // Sommie colour screen: "Control Camera"
     if(sx>1.f) sx=1.f; if(sx<-1.f) sx=-1.f; if(sy>1.f) sy=1.f; if(sy<-1.f) sy=-1.f;
     g_cam_rs_x=(s32)(-sx*32000.f); g_cam_rs_y=(s32)(sy*32000.f); return; }   // x: the view follows the finger
+  if(t_cam==5){ float sx=t_sdx*STICK_DRAG_GAIN, sy=t_sdy*STICK_DRAG_GAIN; t_sdx=t_sdy=0.f;   // world map free camera: left stick
+    if(sx>1.f) sx=1.f; if(sx<-1.f) sx=-1.f; if(sy>1.f) sy=1.f; if(sy<-1.f) sy=-1.f;
+    g_ls_x=(s32)(-sx*32000.f); g_ls_y=(s32)(sy*32000.f); return; }   // drag right = view moves left; drag down = view moves up
   /* t_cam 2 (free roam): touch_update writes the camera targets itself (hub_drag) */ }
 
 static void touch_update(TouchScreenState1*ts){
@@ -97,6 +100,10 @@ static void touch_update(TouchScreenState1*ts){
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence") || proc_find("AnimalAccessSequence"))){
         t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation / observing an animal ("R View")
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
+      // world map free camera (Gmap...GmapFreeCameraSequence: TryLRMove / TryUDMove read the LEFT stick): the map follows the finger
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 fc=proc_find("GmapFreeCameraSequence");
+        if(fc && !proc_sus(fc)){ t_cam=5; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("world map camera",0,0); } }
+      if(t_cam==5){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
       if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
       if(t_cam==1){ int st=(int)(dx/CAM_YAW_STEP);   // whole CAM_YAW_STEP px steps of horizontal travel (truncated towards 0)
@@ -112,7 +119,11 @@ static void touch_update(TouchScreenState1*ts){
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (str_eq(il_cname(g_menu),"MascotCustomizeMenu") || str_eq(il_cname(g_menu),"MascotAccChangeMenu"))){
         float bx0,by0,bx1,by1; if(!menu_bounds(g_menu,&bx0,&by0,&bx1,&by1) || t_x0<bx0-10.f || t_x0>=bx1+10.f || t_y0<by0-10.f || t_y0>=by1+10.f){
           t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera (menu)",0,0); } }
-      if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; } }
+      if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
+      // world map free camera (Gmap...GmapFreeCameraSequence: TryLRMove / TryUDMove read the LEFT stick): the map follows the finger
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 fc=proc_find("GmapFreeCameraSequence");
+        if(fc && !proc_sus(fc)){ t_cam=5; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("world map camera",0,0); } }
+      if(t_cam==5){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; } }
     // in a menu, a drag scrolls: one d-pad step per SWIPE_Y (rows) / SWIPE_X (columns) of travel, in the finger's direction
     // (drag down = cursor down, drag right = right; the user found the content-follows-finger direction inverted)
     // the steps stop at the first / last row instead of wrapping around (t_pred: the row the queued steps will reach)
