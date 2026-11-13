@@ -92,7 +92,7 @@ static void do_cmd_line(const char*p);
 static void dbg_ext(const char*p);
 static char cbuf[4096];
 static void poll_cmd(void){
-  if(!mounted){ mounted=1; u32 r=sd_mount(); mount_rc=r; Buf b={0}; bstr(&b,"[engagetouch] mount sd r="); bhex(&b,r); bflush(&b); mod_lo=(u64)__nx_mod0-0x10000; mod_hi=(u64)__nx_mod0+0x10000000; }
+  if(!mounted){ mounted=1; u32 r=sd_mount(); mount_rc=r; Buf b={0}; bstr(&b,"[engagetouch] mount sd r="); bhex(&b,r); bstr(&b," first="); bhex(&b,g_sd_rc0); bflush(&b); mod_lo=(u64)__nx_mod0-0x10000; mod_hi=(u64)__nx_mod0+0x10000000; }
   if(mount_rc) return;
   FH h; if(FsOpen(&h,"sd:/engagetouch/cmd.txt",1)) return; s64 sz=0; FsSize(&sz,h); if(sz>4095) sz=4095; u64 got=0; WOpt ro={0}; if(sz>0 && FsReadN(&got,h,0,cbuf,(u64)sz,&ro)) got=0; FsClose(h); if(got>(u64)sz) got=0; cbuf[got]=0;
   const char*p=cbuf; int seq=(int)parse_num(&p); if(seq==lastseq) return; lastseq=seq;

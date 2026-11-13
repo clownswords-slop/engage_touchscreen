@@ -54,6 +54,7 @@ static void settings_save(void){
   WOpt o={1}; FsWrite(h,0,b,n,&o); FsClose(h); }
 
 // ---- the rows ----
+static int g_cfg_ret_sel=-1, g_cfg_ret_scroll;   // Settings list cursor / scroll to put back when the Touchscreen view closes
 static u64 g_cfg_menu, g_cfg_cmd, g_cfg_gauge[2], g_cfg_opt[OPT_N]; static int g_cfg_sub;   // the live ConfigMenu, our rows, Touchscreen view on
 static void il_set_ref(u64 at,u64 v){ *(volatile u64*)at=v; ((void(*)(u64,u64))M(0x491fb0))(at,v); }
 static void cfg_set_str(u64 it,u32 off,const char*s){ u64 str=il_new_str(s); if(str) il_set_ref(it+off,str); }
@@ -71,13 +72,17 @@ static u64 cfg_new_row(u64 klass,u64 list,const char*title,const char*help){
 static u64 o_cfg_ctor;
 static void hk_cfg_ctor(u64 self,u64 list,u64 content,u64 mi){
   if(!str_eq(il_cname(self),"ConfigMenu")){ ((void(*)(u64,u64,u64,u64))o_cfg_ctor)(self,list,content,mi); return; }
-  g_cfg_menu=0; g_cfg_cmd=g_cfg_gauge[0]=g_cfg_gauge[1]=0; for(int k=0;k<OPT_N;k++) g_cfg_opt[k]=0; g_cfg_sub=0;
+  // Cobalt's "Cobalt Settings" / "Plugin Settings" open a second ConfigMenu (ConfigMenu.CreateBind on top of the live one, then
+  // replace its rows). Leave that one alone: our rows and state stay on the Settings menu underneath.
+  { u64 live=proc_find("ConfigMenu"); if(live && live!=self){ ((void(*)(u64,u64,u64,u64))o_cfg_ctor)(self,list,content,mi);
+      tm_log2("config rows nested",(s64)(live==g_cfg_menu),0); return; } }
+  g_cfg_menu=0; g_cfg_cmd=g_cfg_gauge[0]=g_cfg_gauge[1]=0; for(int k=0;k<OPT_N;k++) g_cfg_opt[k]=0; g_cfg_sub=0; g_cfg_ret_sel=-1;
   // the full Settings list (it has the hub camera speed row): find ConfigBasicMenuItem's class through that row's parent class
   u64 klass=0; int n=list_n(list); for(int i=0;i<n && i<64;i++){ u64 it=list_at(list,i); if(!it || !mem_ok(it)) continue;
     if(str_eq(il_cname(it),"HubCameraRotateSpeedMenuItem")){ u64 k=RD64(RD64(it)+0x58); if(k && mem_ok(k) && str_eq((const char*)RD64(k+0x10),"ConfigBasicMenuItem")) klass=k; break; } }
   if(klass){
     g_cfg_cmd=cfg_new_row(klass,list,"Touchscreen","Settings for touchscreen controls.");
-    if(g_cfg_cmd){ cfg_set_str(g_cfg_cmd,0x70," "); *(volatile u8*)(g_cfg_cmd+0x81)=1; }
+    if(g_cfg_cmd){ cfg_set_str(g_cfg_cmd,0x70,"Open"); *(volatile u8*)(g_cfg_cmd+0x81)=1; }   // A icon + "Open", like Cobalt's submenu rows
     for(int k=0;k<OPT_N;k++){ u64 it=cfg_new_row(klass,list,opt_title[k],opt_desc[k][g_opt[k]]); g_cfg_opt[k]=it;
       if(it){ *(volatile s32*)(it+0x64)=0; *(volatile u8*)(it+0x81)=0; cfg_opt_texts(it,k); } }
     for(int a=0;a<2;a++){ u64 it=cfg_new_row(klass,list,cam_sens_title[a],cam_sens_desc[a]); g_cfg_gauge[a]=it;
@@ -97,11 +102,21 @@ static int hk_attr1(u64 it,u64 mi){ return cfg_attr(it,((int(*)(u64,u64))o_attr1
 static int hk_attr2(u64 it,u64 mi){ return cfg_attr(it,((int(*)(u64,u64))o_attr2)(it,mi)); }
 
 static int cfg_list_index(u64 m,u64 it){ u64 l=RD64(m+0x78); int n=list_n(l); for(int i=0;i<n && i<80;i++) if(list_at(l,i)==it) return i; return -1; }
-static void cfg_view(int sub){ u64 m=g_cfg_menu; if(!uobj_ok(m)) return; g_cfg_sub=sub;
+// The view switch rebuilds the list (attributes change), which resets the cursor and scroll. Entering puts the cursor on the first
+// Touchscreen row; leaving puts back the select (+0xa0) and scroll (+0xa8) indices the Settings list had, with the scroll and the
+// cursor moved instantly (BasicMenu.SetScrollIndex 0x245c0f0, ScrollInstant 0x245c330, CursorMoveInstant): no slide down the list.
+
+static void cfg_place(u64 m,int sel,int scroll){
+  ((void(*)(u64,int,u64))M(0x245c0f0))(m,scroll,0); ((void(*)(u64,u64))M(0x245c330))(m,0);
+  ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,sel,il_vmi(m,BM_SETSEL)); menu_cursor_instant(m); }
+static void cfg_view(int sub){ u64 m=g_cfg_menu; if(!uobj_ok(m)) return;
+  if(sub){ g_cfg_ret_sel=RDS32(m+0xa0); g_cfg_ret_scroll=RDS32(m+0xa8); }
+  g_cfg_sub=sub;
   ((void(*)(u64,int,u64))M(0x245e840))(m,0,0);   // RebuildInstant(isKeepItemIndex false): attributes rebuilt
+  if(!sub && g_cfg_ret_sel>=0){ cfg_place(m,g_cfg_ret_sel,g_cfg_ret_scroll); return; }
   int i=cfg_list_index(m, sub ? (g_cfg_opt[0] ? g_cfg_opt[0] : g_cfg_gauge[0]) : g_cfg_cmd); if(i<0) return;
-  int rows=RDS32(m+0x9c); int sc= rows>0 && i>=rows ? i-rows+1 : 0;   // m_showRowNum: keep the row on screen (SetScrollIndex 0x245c0f0)
-  ((void(*)(u64,int,u64))M(0x245c0f0))(m,sc,0); menu_select(m,i); }
+  int rows=RDS32(m+0x9c); int sc= rows>0 && i>=rows ? i-rows+1 : 0;   // m_showRowNum: keep the row on screen
+  cfg_place(m,i,sc); }
 
 // ConfigBasicMenuItem.OnSelect (0x2536fd0) turns the row's value arrows on (+0x80 m_IsArrow): not on "Touchscreen" (no value)
 static u64 o_cfg_onselect;

@@ -22,7 +22,10 @@ IMPORT(u32,_ZN2nn2fs15CreateDirectoryEPKc,FsMkdir,const char*)
 #define FsCreate FsCreate_p()
 #define FsDelete FsDelete_p()
 #define FsMkdir FsMkdir_p()
-// mount the SD card as "sd:" once (the retail call; the debug one as a fallback); 0 = mounted
-static u32 g_sd_rc=1; static int g_sd_tried;
+// mount the SD card as "sd:" once (the retail call; the debug one as a fallback); 0 = mounted. Skyline (Cobalt) mounts "sd"
+// itself, so fs::ResultMountNameAlreadyExists (2002-0060 = 0x7802) means "sd:" is already usable.
+#define FS_MOUNT_NAME_EXISTS 0x7802u
+static u32 g_sd_rc=1, g_sd_rc0; static int g_sd_tried;
 static u32 sd_mount(void){ if(g_sd_tried) return g_sd_rc; g_sd_tried=1;
-  g_sd_rc=FsMountSdCard("sd"); if(g_sd_rc) g_sd_rc=FsMountSd("sd"); return g_sd_rc; }
+  g_sd_rc=g_sd_rc0=FsMountSdCard("sd"); if(g_sd_rc && g_sd_rc!=FS_MOUNT_NAME_EXISTS) g_sd_rc=FsMountSd("sd");
+  if(g_sd_rc==FS_MOUNT_NAME_EXISTS) g_sd_rc=0; return g_sd_rc; }
