@@ -1,43 +1,20 @@
 # Fire Emblem Engage Touchscreen Support (work in progress)
 
-Adds touchscreen / mouse support to Fire Emblem Engage (v2.0.0), built the same way as the Three Houses mod in
-`../claude_touchmod`: a standalone `subsdk8` module. It sits beside Cobalt (Skyline uses `subsdk9`).
+fully opus 5.5 vibecoded mod that adds touchscreen/mouse support to engage. covering the menus and verbs I see while playing via ryujinx and a mouse. releasing early as most menus/systems are already covered, and I'm curious to know if there are issues with it running alongside other mods/setups (namely alongside cobalt, which I tried to handle)
 
-## Install (Ryujinx)
-Copy `exefs/subsdk8` to
-`%APPDATA%\Ryujinx\mods\contents\0100a6301214e000\EngageTouchMod\exefs\`. Turn "Direct Mouse Access" off so mouse clicks
-arrive as touches.
+#### features
+- tap to select menu items, tiles, "buttons" that showed contextual controls (e.g. "(Zr) Additional Info" during battle), and info on status screens
+- tap-and-drag to control the camera in every situation that allows camera control
+- adds a new tab in the options menu labeled "touchscreen" for mod-specific options
 
-Every release build (`tools/build_local.sh`) packages two variants in `release/`:
-- `EngageTouchMod_WithCobalt` (`exefs/subsdk8` only): for Cobalt setups, whose `main.npdm` grants the permissions the mod needs
-  (SD card access and the code-patching SVCs).
-- `EngageTouchMod_Standalone` (`exefs/subsdk8` + `exefs/main.npdm`): without Cobalt. Its `main.npdm` is the game's own,
-  patched by `tools/mknpdm.py`.
+#### install
+- same installation process as any other mod
+- note that the release for cobalt is *not* a cobalt plugin, but has the `main.npdm` removed so it can function alongside it
 
-## What works so far
-- Every standard menu (title, options, dialogs, unit command / item menus, ...): tap an entry to select it, tap the selected
-  entry again to confirm. Drag up / down on a menu to scroll. Tap well outside a menu to go back (B). On option rows, tap the
-  arrows to change the value.
-- Button prompts shown on screen (e.g. "+ menu" on the map): tap them to press that button.
-- Title screen: tap to continue.
-- Dialogue: tap to advance. Cutscene movies: tap to skip (+).
-- Tutorial windows: tap the arrows to turn pages, anywhere else to continue.
-- Battle map: tap a tile to move the cursor there, tap the cursor's tile to select / confirm (unit, destination).
-  Target selection: tap an enemy to target it, tap it again to attack.
+#### issues
+- cursor navigation through tapping is *mostly* instant but lags behind in a few menus or in any menus left uncovered (it will otherwise guesstimate locations of items)
+- most buttons might be too precise/small to actually tap consistently without the use of a mouse (I haven't tested this on an actual switch)
+- didn't bother with amiibos or online play so I have no idea if anything's missing with either
+- didn't offer a (good) way to scroll up/down menus and you'll likely still want to use the dpad to do so
 
-- Details mode (X): tap a stat, item or skill to see its description; tap elsewhere to close it.
-- Unit status screen: tap away from the prompts to go back; after + View hid the panels, tap to bring them back.
-- Battle forecast: tap the "(A) Attack" button (or the target) to attack. Engage confirmation: tap the "(A) Engage" button.
-- Combat animations: tap to skip (when the game allows skipping). "STAGE CLEAR!": tap to continue.
-- Page arrows beside lists (Guide, Units): tap them to turn the page.
-- Units list: tap a column header to sort by it, tap it again to flip the order; tap a unit to leave sorting.
-- Battle forecast: tap the "< L weapon R >" arrows to change the weapon. With two enemies in range, tap the other one to switch
-  targets (tap it again to attack).
-
-- Battle map: drag up / down to tilt the camera (drag down = lower and closer).
-- Explore fields: drag to turn the camera; tap the "(A) Talk" label over someone to talk to them; tap the corner prompts.
-- Settings: a new "Touchscreen" entry with Horizontal / Vertical Camera Sensitivity.
-- Storehouse: tap a category icon (or the arrows) to switch category. Bond popups, "STAGE CLEAR!" and "GAME OVER": tap to continue.
-
-## Not done yet
-See `HANDOFF.md`.
+it looks like a mess under the hood but I didn't bother to thoroughly check (sorry). check the git for the frankly unreadable code and the notes it took with locations of UI elements in memory if they're of any interest, but they're riddled with claude-speak as you might expect. the above was written by me because I'd rather kill myself than make you read claude-speak
