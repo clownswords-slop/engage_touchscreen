@@ -238,8 +238,7 @@ static const char* const k_two_tap[]={
   "MuscleStartMenu", "MuscleDifficultMenu", "AnimalInsideMenu", "AnimalOutsideMenu",         // strength training, stable
   "MascotFoodSelectMenu", "MascotAccChangeMenu",                                            // Sommie feed / accessories
   "DishSelectMenu", "FoodstuffMenu",                                                         // café meals (CookingMenu.*)
-  "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu",                                      // arena: emblem / level picks
-  "AchievementMenu" };                                                                       // Records Hall
+  "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu" };                                   // arena: emblem / level picks
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
