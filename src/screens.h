@@ -60,10 +60,12 @@ static int piece_hit(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(
   return 0; }
 // The unit bar at the bottom of the battle map (App.UnitInfo, a ProcInst: +0x80 m_Windows, UnitInfo.Window[]: +0x40 m_IsVisible,
 // +0x30 m_UnitInfoWindowSimple (UnitInfoWindow: +0x18 m_GameObject)): the 720p box of its visible window that holds (x, y).
-// Its root spans the screen, so a tap counts only on one of its pieces (piece_hit).
+// Its root spans the screen, so a tap counts only on one of its pieces (piece_hit). A window with no unit and no emblem
+// (m_Unit +0x18, m_God +0x20 both null: the cursor is on an empty tile) still reports visible with its pieces active, but shows
+// nothing: taps there go to the map.
 static int unitbar_hit(float x,float y){ u64 p=proc_find("UnitInfo"); if(!p || !mem_ok(p)) return 0; u64 arr=RD64(p+0x80);
   if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>4) n=4;
-  for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd) || !RD8(wd+0x40)) continue; u64 uw=RD64(wd+0x30);
+  for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd) || !RD8(wd+0x40) || (!RD64(wd+0x18) && !RD64(wd+0x20))) continue; u64 uw=RD64(wd+0x30);
     if(!uw || !mem_ok(uw)) continue; u64 go=RD64(uw+0x18); if(!uobj_ok(go) || !u_active(go)) continue;
     if(piece_hit(u_go_transform(go),0,x,y)){ tm_log2("unit bar",(s64)x,(s64)y); return 1; } }
   return 0; }

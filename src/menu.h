@@ -318,11 +318,13 @@ static const char* const k_details_menus[]={ "GodRoomUnitSelectMenu", "UnitSelec
 // Shops' buy / sell screens (armory, item shop, flea market): the "In-Use Stats" panel is the root's ItemMenuDetailSetter (a
 // MonoBehaviour on the panel); X Cycle Info swaps what it shows: a tap on it is X. Roots: HubWeaponShopSequence +0x80
 // WeaponShopBuyRoot (+0x88 setter), HubItemShopSequence +0x80 ItemShopBuyRoot (+0x70), and every sequence's +0x88 ShopSellRoot (+0x50).
-static int shop_stats_tap(float x,float y){ static const char* const sq[3]={"HubWeaponShopSequence","HubItemShopSequence","HubFleaMarketSequence"};
-  for(int k=0;k<3;k++){ u64 p=proc_find(sq[k]); if(!p || !mem_ok(p)) continue;
+// The world map Marketplace runs SortieSequenceWeaponShop / SortieSequenceItemShop: subclasses of the Hub ones, same layout.
+static int shop_stats_tap(float x,float y){
+  static const char* const sq[5]={"HubWeaponShopSequence","HubItemShopSequence","HubFleaMarketSequence","SortieSequenceWeaponShop","SortieSequenceItemShop"};
+  for(int q=0;q<5;q++){ int k= q<3 ? q : q-3; u64 p=proc_find(sq[q]); if(!p || !mem_ok(p)) continue;   // k: 0 weapon, 1 item, 2 flea market
     for(int j=0;j<2;j++){ if(j==0 && k==2) continue; u64 r=RD64(p+(j ? 0x88 : 0x80)); if(!r || !mem_ok(r)) continue;
       u64 ds=RD64(r+(j ? 0x50 : k==0 ? 0x88 : 0x70)); if(!uobj_ok(ds)) continue; u64 go=u_gameobject(ds); if(!uobj_ok(go) || !u_active(go)) continue;
-      float x0,y0,x1,y1; if(tr_box(u_transform(ds),0,&x0,&y0,&x1,&y1) && x1>x0 && x>=x0-6.f && x<x1+6.f && y>=y0-6.f && y<y1+6.f){ tm_log2("shop stats: X",k,j); press(BTN_X); return 1; } } }
+      float x0,y0,x1,y1; if(tr_box(u_transform(ds),0,&x0,&y0,&x1,&y1) && x1>x0 && x>=x0-6.f && x<x1+6.f && y>=y0-6.f && y<y1+6.f){ tm_log2("shop stats: X",q,j); press(BTN_X); return 1; } } }
   return 0; }
 static int details_menu(u64 m){ const char*c=il_cname(m); for(u32 j=0;j<sizeof(k_details_menus)/sizeof(k_details_menus[0]);j++) if(str_eq(c,k_details_menus[j])) return 1; return 0; }
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
