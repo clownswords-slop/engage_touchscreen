@@ -370,6 +370,10 @@ static int screen_tap(float x,float y){ u64 p;
   // finger on the button (a 2-frame press could fall in the moments a new page ignores input: "taps sometimes don't register")
   if((p=proc_find("TalkKeyWait"))){ tm_log2("talk: A",0,0); q_push(BTN_A,6,3); return 1; }
   if((p=proc_find("TalkSequence")) && !proc_sus(p)){ tm_log2("talk writing: A",0,0); q_push(BTN_A,6,3); return 1; }
+  // Meld Bond Rings animation (RingSynthesisSequence while its SkipListenerProc runs, m_IsSkipped +0x100 not set): + skips it,
+  // so a tap is + there; the reveal after it waits for A (below)
+  if((p=proc_find("RingSynthesisSequence"))){ u64 sl=proc_find("SkipListenerProc");
+    if(sl && mem_ok(sl) && !RD8(p+0x100) && !RD8(sl+0x70)){ tm_log2("ring meld: + skip",0,0); press(BTN_PLUS); return 1; } }
   // bond level / Engage bond / relay popups (App.TelopManager+Proc*, "(A) Next" drawn by the telop) and the emblem bond growth
   if(proc_find("ProcBondLevelUp") || proc_find("ProcBondEngageBase") || proc_find("ProcBondEngagePair") || proc_find("ProcBondEngageQuartette")
      || proc_find("ProcRelayResult") || proc_find("GodGrowSequence") || proc_find("RingGachaSequence") || proc_find("RingSynthesisSequence") || proc_find("RefineShopEngraveDemo")   /* Create / Meld Bond Rings reveal: (A) Next / (A) Confirm; Smithy engrave result (no prompt, waits for A) */
@@ -383,7 +387,8 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
   // Off (default) = taps do nothing and drags move the camera (touch.h, the right stick that CombatInput reads into CameraPan)
-  if((p=proc_find("CombatSequence"))){ if(g_tap_skip) press(BTN_PLUS); return 1; }
+  // the arena's training bouts run Combat.ArenaCombatSequence (not a CombatSequence subclass), same input
+  if((p=proc_find("CombatSequence")) || (p=proc_find("ArenaCombatSequence"))){ if(g_tap_skip) press(BTN_PLUS); return 1; }
   if((p=proc_find("TutorialSequence")) && !proc_sus(p)) return tutorial_tap(p,x,y);
   if((p=proc_find("PlayerGenderSelectMenuSequence")) && !proc_sus(p)) return gender_tap(p,x,y);
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }

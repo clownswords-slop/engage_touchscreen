@@ -72,7 +72,8 @@ static void hub_drag(float x,float y){ u64 c=hubcam(); if(!c) return; float dx=x
   t_hub_yawt-=dx*HUB_YAW_DPX*cam_sens_gain(0); t_hub_pitt-=dy*HUB_PIT_DPX*cam_sens_gain(1);
   if(t_hub_pitt<HUB_PIT_MIN) t_hub_pitt=HUB_PIT_MIN; if(t_hub_pitt>HUB_PIT_MAX) t_hub_pitt=HUB_PIT_MAX;
   if(dx!=0.f) interp_set(RD64(c+0x98),t_hub_yawt,HUB_EASE); if(dy!=0.f) interp_set(RD64(c+0x80),t_hub_pitt,HUB_EASE); }
-static int hub_cam_ok(void){ return !g_menu && !help_active() && hubcam() && proc_find("HubSequence"); }
+// free roam only: the Somniel / explore field's own sequence running (not suspended under an arena bout, a shop, ...)
+static int hub_cam_ok(void){ u64 h; return !g_menu && !help_active() && hubcam() && (h=proc_find("HubSequence")) && !proc_sus(h); }
 
 static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
   if(t_cam==1){ float cur; if(!cam_tilt(&cur)) return; g_cam_rs_y=(s32)(-cam_drive(t_cam_target-cur,8.f)*32000.f); return; }
@@ -97,8 +98,9 @@ static void touch_update(TouchScreenState1*ts){
         t_cam=1; t_cam_target=t_cam_tilt0; t_cam_steps=0; t_cam_ysign= t_y0>=360.f ? 1 : -1; tm_log2("map camera",(s64)t_cam_tilt0,0); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yawt,&t_hub_pitt)){
         t_cam=2; t_hlx=t_x0; t_hly=t_y0; tm_log2("hub camera",(s64)t_hub_yawt,(s64)t_hub_pitt); }
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("UnitInfoSequence") || proc_find("AnimalAccessSequence"))){
-        t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation / observing an animal ("R View")
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("ArenaCombatSequence") || proc_find("UnitInfoSequence") || proc_find("AnimalAccessSequence")
+         || proc_find("AccessoryShopBuyRootProc") || proc_find("AccessoryShopChangeRootProc"))){
+        t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation / observing an animal ("R View") / boutique "+ View"
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
       // world map free camera (Gmap...GmapFreeCameraSequence: TryLRMove / TryUDMove read the LEFT stick): the map follows the finger
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 fc=proc_find("GmapFreeCameraSequence");
@@ -116,7 +118,8 @@ static void touch_update(TouchScreenState1*ts){
     // Sommie Dress Up (MascotCustomizeMenu, MascotAccChangeMenu: "R Control Camera"): a drag that starts off the list drives the
     // right stick like the colour screen (t_cam 4)
     if(g_menu && !t_swiped){ float dx=x-t_x0, dy=y-t_y0;
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (str_eq(il_cname(g_menu),"MascotCustomizeMenu") || str_eq(il_cname(g_menu),"MascotAccChangeMenu"))){
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (str_eq(il_cname(g_menu),"MascotCustomizeMenu") || str_eq(il_cname(g_menu),"MascotAccChangeMenu")
+         || str_eq(il_cname(g_menu),"AccessoryShopBuyMenu") || str_eq(il_cname(g_menu),"AccessoryShopChangeMenu"))){   // + boutique Buy / Change (R turns the camera)
         float bx0,by0,bx1,by1; if(!menu_bounds(g_menu,&bx0,&by0,&bx1,&by1) || t_x0<bx0-10.f || t_x0>=bx1+10.f || t_y0<by0-10.f || t_y0>=by1+10.f){
           t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera (menu)",0,0); } }
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }

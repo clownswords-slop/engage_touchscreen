@@ -4,7 +4,8 @@
 # Only loads; never saves (Slot 1 is the user's own save).
 D="$(dirname "$0")"; C="$D/cmd.sh"
 [ "$NOBOOTWAIT" ] || sleep 8; "$C" "tlog 1" >/dev/null; "$D/totop.sh" || exit 1
-"$C" "tap 1100 327" >/dev/null; sleep 1; "$C" "tap 1100 327" >/dev/null; sleep 3
+# Continue: one tap opens the list once the row is selected (a second tap could land on the list's Slot 1 row)
+"$C" "tap 1100 327" >/dev/null; sleep 1.5; "$C" "menu" | grep -q "SaveDataMenu" || { "$C" "tap 1100 327" >/dev/null; sleep 3; }
 "$C" "menu" | grep -q "SaveDataMenu" || { echo "no save list"; exit 1; }
 R=${1:-0}; [ "$R" = 1 ] && { echo "row 1 is the user's save"; exit 1; }
 # tap row R by its on-screen box (the list may open scrolled); scroll with the d-pad until it is visible

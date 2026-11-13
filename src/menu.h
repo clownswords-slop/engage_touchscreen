@@ -26,7 +26,20 @@ static u64 menu_cam(u64 m){ u64 mc=RD64(m+0x70);
   return 0; }
 static int item_box(u64 it,u64 cam,float*x0,float*y0,float*x1,float*y1){ if(!it || item_hidden(it)) return 0; return comp_box(RD64(it+0x18),cam,x0,y0,x1,y1); }
 // item under a 720p point, -1 if none
+static int str_eq(const char*a,const char*b);
 static int menu_hit(u64 m,float x,float y){ u64 cam=menu_cam(m); int n=menu_items(m);
+  // Time Crystal (RewindMenu): text-only rows with 4 px gaps and boxes as wide as their text. Each visible row takes the full band:
+  // the widest row's width, down / up to the midpoints with its neighbours (rows faded out at the top don't count)
+  if(str_eq(il_cname(m),"RewindMenu")){ float bx0=1e9f, bx1=-1e9f; int k=0; float ry0[16], ry1[16]; int ri[16];
+    for(int i=0;i<n && k<16;i++){ u64 it=menu_item(m,i); float x0,y0,x1,y1; if(!item_box(it,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
+      u64 c=RD64(it+0x18); if(!uobj_ok(c) || ui_alpha(u_transform(c))<0.3f) continue;
+      if(x0<bx0) bx0=x0; if(x1>bx1) bx1=x1; ry0[k]=y0; ry1[k]=y1; ri[k]=i; k++; }
+    if(!k || x<bx0 || x>=bx1+20.f) return -1;
+    for(int j=0;j<k;j++){ float lo=ry0[j], hi=ry1[j];
+      for(int q=0;q<k;q++){ if(q==j) continue; if(ry1[q]<=ry0[j] && ry0[j]-ry1[q]<12.f && (ry1[q]+ry0[j])*0.5f<lo) lo=(ry1[q]+ry0[j])*0.5f;
+        if(ry0[q]>=ry1[j] && ry0[q]-ry1[j]<12.f && (ry0[q]+ry1[j])*0.5f>hi) hi=(ry0[q]+ry1[j])*0.5f; }
+      if(y>=lo && y<hi) return ri[j]; }
+    return -1; }
   for(int i=0;i<n;i++){ float x0,y0,x1,y1; if(item_box(menu_item(m,i),cam,&x0,&y0,&x1,&y1) && x>=x0 && x<x1 && y>=y0 && y<y1) return i; }
   return -1; }
 // value arrows inside an item (option rows: "ArrowL" / "ArrowR" objects): -1 / +1 when (x, y) is on one (generous slop: they
@@ -238,7 +251,10 @@ static const char* const k_two_tap[]={
   "MuscleStartMenu", "MuscleDifficultMenu", "AnimalInsideMenu", "AnimalOutsideMenu",         // strength training, stable
   "MascotFoodSelectMenu", "MascotAccChangeMenu",                                            // Sommie feed / accessories
   "DishSelectMenu", "FoodstuffMenu",                                                         // café meals (CookingMenu.*)
-  "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu" };                                   // arena: emblem / level picks
+  "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu",                                     // arena: emblem / level picks
+  "RefineShopRefineBaseMenu", "RefineShopRefineTargetMenu", "RefineShopEngraveItemSelectMenu", "RefineShopEngraveGodMenu",   // smithy: refine, engrave
+  "RefineShopExchangeTargetMenu", "RefineShopExchangeSourceMenu",                            // smithy: exchange (metal wanted, metal offered)
+  "AmiiboAccessoryMenu", "AmiiboSoundMenu" };                                               // amiibo gazette: outfits, songs
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
@@ -307,6 +323,10 @@ static int ring_ref_tap(u64 m,float x,float y){ (void)m; u64 sq=proc_find("RingL
   if(hit<0) return 0;
   u64 b=k_rr_btn[hit]; if(b!=g_rr_btn) g_rr_n=0; g_rr_btn=b; if(g_rr_n<8) g_rr_n++;
   tm_log2("ring ref arrow (queued)",hit,g_rr_n); return 1; }
+// the focused menu is Ring Reference's emblem list: a nested class "Menu" declared by GodAndRingListWindow (Il2CppClass +0x50
+// declaringType, +0x10 name)
+static int rr_list_menu(u64 m){ u64 k= m && mem_ok(m) ? RD64(m) : 0; u64 d= k && mem_ok(k) ? RD64(k+0x50) : 0;
+  return d && mem_ok(d) && RD64(d+0x10) && str_eq((const char*)RD64(d+0x10),"GodAndRingListWindow"); }
 static void ring_ref_frame(void){ if(!g_rr_n) return; u64 sq=proc_find("RingListSequence");
   if(!sq || sq!=g_rr_seq){ g_rr_n=0; return; }
   if(g_rr_wait>0){ g_rr_wait--; return; } if(q_busy() || !rr_live(sq)) return;
@@ -334,7 +354,10 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(i<0){ int n=menu_items(m), d=0; for(int k=0;k<n && k<16;k++){ u64 it=menu_item(m,k); if(it && str_eq(il_cname(it),"DummyMenuItem")) d++; }
     if(n>0 && d==n){ tm_log2("message dialog: A",n,0); press(BTN_A); return 1; } }
   if(nav_tap(m,x,y)) return 1;
-  if(ring_ref_tap(m,x,y)) return 1;   // before the rows: a row box can reach under the arrows
+  // before the rows: a row box can reach under the arrows. Not on Ring Reference's emblem list (X List: RingListSequence
+  // +GodAndRingListWindow+Menu): it covers the portrait's "<" and the world title's arrows, whose remembered boxes would turn
+  // taps on names into queued page turns (the list "scrolling to a different item" after a tap)
+  if(!rr_list_menu(m) && ring_ref_tap(m,x,y)) return 1;
   // battle map unit -> Items (ItemMenu): the "In-Use Stats" panel and the text under the rows swap with X (no prompt shown):
   // a tap there (the rows' width, below the last row) is X
   // also prep Manage Items' In-Use Stats (X Cycle Info) under the unit's items, whichever list has the focus
