@@ -1,10 +1,15 @@
 #!/bin/bash
-# package.sh : release build -> release/EngageTouchMod/exefs/subsdk8 + release/EngageTouchMod.zip
-# No main.npdm in the package: Cobalt's grants the permissions the mod needs. A standalone npdm (the game's own + SdCard +
-# the code-patching SVCs) can still be made with:  python tools/mknpdm.py work/exefs/main.npdm build/main.npdm
+# package.sh : release/ from build/subsdk8 (tools/build_local.sh runs it after every release build). Two variants:
+#   release/EngageTouchMod/exefs/subsdk8                         (+ EngageTouchMod.zip): for Cobalt, whose main.npdm covers us
+#   release/EngageTouchMod_Standalone/exefs/{subsdk8,main.npdm}  (+ EngageTouchMod_Standalone.zip): without Cobalt; main.npdm =
+#     the game's own + SdCard + the code-patching SVCs (tools/mknpdm.py)
+# Only packaged, never installed: restart.ps1 installs subsdk8 alone.
 set -e; cd "$(dirname "$0")/.."
-tools/build_local.sh
-R=release/EngageTouchMod/exefs; rm -rf release; mkdir -p $R
-cp build/subsdk8 $R/
-(cd release && python -c "import shutil; shutil.make_archive('EngageTouchMod','zip','.','EngageTouchMod')")
-ls -la $R release
+[ -f build/subsdk8 ] || tools/build_local.sh
+python tools/mknpdm.py work/exefs/main.npdm build/main.npdm
+rm -rf release; mkdir -p release/EngageTouchMod/exefs release/EngageTouchMod_Standalone/exefs
+cp build/subsdk8 release/EngageTouchMod/exefs/
+cp build/subsdk8 build/main.npdm release/EngageTouchMod_Standalone/exefs/
+(cd release && python -c "import shutil
+for n in ('EngageTouchMod','EngageTouchMod_Standalone'): shutil.make_archive(n,'zip','.',n)")
+ls -la release release/*/exefs

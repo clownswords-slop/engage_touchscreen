@@ -8,9 +8,11 @@ Copy `exefs/subsdk8` to
 `%APPDATA%\Ryujinx\mods\contents\0100a6301214e000\EngageTouchMod\exefs\`. Turn "Direct Mouse Access" off so mouse clicks
 arrive as touches.
 
-The package has no `main.npdm`: Cobalt's grants the permissions the mod needs (SD card access and the code-patching
-SVCs). For a setup without Cobalt, make a patched copy of the game's own with
-`python tools/mknpdm.py work/exefs/main.npdm build/main.npdm` and put it next to `subsdk8`.
+Every release build (`tools/build_local.sh`) packages two variants in `release/`:
+- `EngageTouchMod` (`exefs/subsdk8` only): for Cobalt setups, whose `main.npdm` grants the permissions the mod needs
+  (SD card access and the code-patching SVCs).
+- `EngageTouchMod_Standalone` (`exefs/subsdk8` + `exefs/main.npdm`): without Cobalt. Its `main.npdm` is the game's own,
+  patched by `tools/mknpdm.py`.
 
 ## What works so far
 - Every standard menu (title, options, dialogs, unit command / item menus, ...): tap an entry to select it, tap the selected
