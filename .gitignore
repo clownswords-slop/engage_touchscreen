@@ -8,6 +8,7 @@ work/
 subsdk[0-9]*
 HANDOFF.md
 COBALT.md
+tasklist.md
 # third-party reference copy (Cobalt)
 Cobalt-master/
 __pycache__/
