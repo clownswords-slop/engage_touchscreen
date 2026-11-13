@@ -9,7 +9,7 @@ Copy `exefs/subsdk8` to
 arrive as touches.
 
 Every release build (`tools/build_local.sh`) packages two variants in `release/`:
-- `EngageTouchMod` (`exefs/subsdk8` only): for Cobalt setups, whose `main.npdm` grants the permissions the mod needs
+- `EngageTouchMod_WithCobalt` (`exefs/subsdk8` only): for Cobalt setups, whose `main.npdm` grants the permissions the mod needs
   (SD card access and the code-patching SVCs).
 - `EngageTouchMod_Standalone` (`exefs/subsdk8` + `exefs/main.npdm`): without Cobalt. Its `main.npdm` is the game's own,
   patched by `tools/mknpdm.py`.
