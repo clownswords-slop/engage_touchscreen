@@ -15,8 +15,8 @@ repo (`claude_touchmod`). It is written for whoever (or whichever Claude) starts
 
 ## 1. What carries over unchanged
 
-### Mod skeleton (a bare `subsdk9`, no framework)
-- The mod is one freestanding AArch64 module, `exefs/subsdk9`, loaded by the game's own rtld. There is no libnx, no exlaunch and
+### Mod skeleton (a bare `subsdk8`, no framework)
+- The mod is one freestanding AArch64 module, `exefs/subsdk8`, loaded by the game's own rtld. There is no libnx, no exlaunch and
   no skyline. Files: `src/start.S` (MOD0 header), `src/link.ld` (3 PT_LOADs + dynamic), `src/elf2nso.py` (ELF -> NSO).
 - **Input hook by symbol interposition:** the module *defines* `nn::hid::GetNpadState(NpadFullKeyState*, const u32&)` (and the
   Handheld / JoyDual variants). rtld binds the game's imports to our definitions. Each one calls the real *plural*
@@ -34,14 +34,13 @@ repo (`claude_touchmod`). It is written for whoever (or whichever Claude) starts
 ### Build (Windows, no devkitPro)
 - `tools/build_local.sh [debug]` uses the pip package **`ziglang`** (`python -m ziglang clang` / `ld.lld`). Flags that matter:
   `--target=aarch64-none-elf -ffreestanding -nostdlib -fPIC -fno-stack-protector -mno-outline-atomics -ffixed-x18 -fno-plt`,
-  linked `-shared -z now --unresolved-symbols=ignore-all -soname subsdk9`.
-- **Install:** `%APPDATA%\Ryujinx\mods\contents\<TitleID>\<ModName>\exefs\subsdk9` (+ `main.npdm` if patched). Engage's
+  linked `-shared -z now --unresolved-symbols=ignore-all -soname subsdk8`.
+- **Install:** `%APPDATA%\Ryujinx\mods\contents\<TitleID>\<ModName>\exefs\subsdk8` (+ `main.npdm` if patched). Engage's
   title ID is `0100A6301214E000` *(verify)*.
 - **Every new build needs a real emulation restart**: Stop Emulation, then start the game again. A soft reset keeps the old
   module loaded. Before restarting, write a harmless command (`info`) into the debug channel, otherwise a stale `call` in
   `cmd.txt` runs on the next boot.
-- Check that `subsdk9` isn't already taken by another loader. Engage modders commonly use skyline/Cobalt *(verify)*, which may
-  occupy `subsdk9`; if so, pick a free `subsdkN`.
+- `subsdk9` is taken by Skyline, which Cobalt runs on, so the mod uses `subsdk8` (moved there 2026-11-12); see COBALT.md.
 
 ### `main.npdm` (permissions)
 - `tools/mknpdm.py IN OUT` patches the game's own npdm, in both the ACID and the ACI0 blocks:

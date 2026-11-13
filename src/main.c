@@ -1,4 +1,4 @@
-// Fire Emblem Engage touch controls: a bare subsdk9 that interposes nn::hid's npad / touch reads.
+// Fire Emblem Engage touch controls: a bare subsdk8 that interposes nn::hid's npad / touch reads.
 #include "util.h"
 typedef struct { s32 x,y; } Stick;
 typedef struct { s64 sampling; u64 buttons; Stick l,r; u32 attr; u32 pad; } NpadState;

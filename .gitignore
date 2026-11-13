@@ -5,7 +5,7 @@ release/
 work/
 *.o
 *.elf
-subsdk9*
+subsdk[0-9]*
 HANDOFF.md
 # third-party reference copy (Cobalt)
 Cobalt-master/
