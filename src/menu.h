@@ -253,7 +253,7 @@ static const char* const k_two_tap[]={
   "DishSelectMenu", "FoodstuffMenu",                                                         // café meals (CookingMenu.*)
   "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu",                                     // arena: emblem / level picks
   "RefineShopRefineBaseMenu", "RefineShopRefineTargetMenu", "RefineShopEngraveItemSelectMenu", "RefineShopEngraveGodMenu",   // smithy: refine, engrave
-  "RefineShopExchangeTargetMenu", "RefineShopExchangeSourceMenu",                            // smithy: exchange (metal wanted, metal offered)
+  "RefineShopExchangeSourceMenu",                                                            // smithy: exchange, metal offered (metal wanted is one tap)
   "AmiiboAccessoryMenu", "AmiiboSoundMenu" };                                               // amiibo gazette: outfits, songs
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
