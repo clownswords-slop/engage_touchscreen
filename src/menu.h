@@ -96,6 +96,11 @@ static int menu_page_arrow(u64 m,float x,float y){
 #define TL_MOVEDOWN 45
 static u64 troop_sortmenu(u64 m){ u64 k=RD64(m); if(!k || !mem_ok(k)) return 0; u64 st=RD64(k+0xb8); if(!st || !mem_ok(st)) return 0;
   u64 s=RD64(st+0x20); return uobj_ok(s) ? s : 0; }
+// Sort mode needs the list scrolled to the top: TroopListSortMenu.SetPage (0x22a4070) reads the shown rows' items, and with
+// row 0 scrolled away one is null (IsAttributeBlank on null: crash). Scroll to 0 (SetScrollIndex 0x245c0f0, ScrollInstant
+// 0x245c330), then select row 0, before MoveUp enters sort mode.
+static void troop_to_top(u64 m){ if(RDS32(m+0xa8)!=0){ ((void(*)(u64,int,u64))M(0x245c0f0))(m,0,0); ((void(*)(u64,u64))M(0x245c330))(m,0); }
+  if(RDS32(m+0xa0)!=0) menu_select(m,0); }
 static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(!s) return 0;
   u64 l=RD64(s+0x20); int n=list_n(l), t=-1; if(n>24) n=24;
   for(int k=0;k<n;k++){ u64 st=list_at(l,k); if(!st || !mem_ok(st)) continue; if(go_hit(RD64(st+0x10),x,y,4.f)){ t=k; break; } }
@@ -103,7 +108,7 @@ static int troop_header_tap(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   int was=RD8(m+0xc4)!=0, cur=RDS32(s+0x50); tm_log2("troop sort",t,cur);
   if(was && t==cur){ press(BTN_A); return 1; }
   // one tap sorts (the user's list): step to the column, then A
-  if(!was){ if(RDS32(m+0xa0)!=0) menu_select(m,0);
+  if(!was){ troop_to_top(m);
     ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEUP))(m,1,il_vmi(m,TL_MOVEUP)); if(!RD8(m+0xc4)) return 1; }
   for(int g=0;g<12;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
@@ -119,7 +124,7 @@ static int troop_page_arrow(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
   int first[8], cur=-1, acc=0;
   for(int k=0;k<np;k++){ u64 pg=u_child(sl,k); first[k]=acc; acc+=u_child_count(pg); if(uobj_ok(pg) && u_active(u_gameobject(pg))) cur=k; }
   if(cur<0) return 0; int tp=(cur+pa+np)%np, t=first[tp]; tm_log2("troop tab",tp,t);
-  if(!RD8(m+0xc4)){ if(RDS32(m+0xa0)!=0) menu_select(m,0);
+  if(!RD8(m+0xc4)){ troop_to_top(m);
     ((void(*)(u64,int,u64))il_vfn(m,TL_MOVEUP))(m,1,il_vmi(m,TL_MOVEUP)); if(!RD8(m+0xc4)) return 1; }
   for(int g=0;g<24;g++){ int c=RDS32(s+0x50); if(c==t) break;
     ((void(*)(u64,int,u64))M(c<t?0x22a5cf0:0x22a5750))(m,0,0); if(RDS32(s+0x50)==c) break; }
