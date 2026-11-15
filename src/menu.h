@@ -33,6 +33,7 @@ static int menu_hit(u64 m,float x,float y){ u64 cam=menu_cam(m); int n=menu_item
   if(str_eq(il_cname(m),"RewindMenu")){ float bx0=1e9f, bx1=-1e9f; int k=0; float ry0[16], ry1[16]; int ri[16];
     for(int i=0;i<n && k<16;i++){ u64 it=menu_item(m,i); float x0,y0,x1,y1; if(!item_box(it,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
       u64 c=RD64(it+0x18); if(!uobj_ok(c) || ui_alpha(u_transform(c))<0.3f) continue;
+      if(RD64(c+0x18)!=it) continue;   // the 11 row slots are reused: an entry keeps its old slot link (stale), the slot's m_menuItem is the one shown
       if(x0<bx0) bx0=x0; if(x1>bx1) bx1=x1; ry0[k]=y0; ry1[k]=y1; ri[k]=i; k++; }
     if(!k || x<bx0 || x>=bx1+20.f) return -1;
     for(int j=0;j<k;j++){ float lo=ry0[j], hi=ry1[j];
