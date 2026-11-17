@@ -79,6 +79,8 @@ static void press(u64 b){ q_push(b,2,3); }
 // a button held across frames until released (ZR Additional Info on the battle map, latched by a tap on its prompt): ORed into
 // every pad read while set
 static u64 g_latch;
+// A held while the finger is down (touch.h hold_a_ok: an attack with Tap To Skip Off, the enemy phase), ORed in like g_latch
+static u64 g_hold;
 // ---- right-stick queue (camera): each push holds (x, y) for `hold` frames, then centres the stick for `gap` frames ----
 typedef struct { s32 x, y; int hold, gap; } RStep;
 static RStep rq[16]; static int rqh, rqt, rq_phase, rq_cnt; static s32 g_rs_x, g_rs_y;

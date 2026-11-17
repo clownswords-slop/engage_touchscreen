@@ -88,7 +88,15 @@ static int map_tap(u64 h,float x,float y){ if(unitbar_hit(x,y)){ details_at(x,y,
 static u64 map_target(void){ u64 cell=RD64(M(0x6284fb0)); if(!cell || !mem_ok(cell)) return 0; u64 mi=RD64(cell); if(!mi || (mi&1) || !mem_ok(mi)) return 0;
   return ((u64(*)(u64))M(0x1c4560))(mi); }
 static int target_tap(u64 ts,int tx,int tz){ u64 mt=map_target(); if(!mt || !mem_ok(mt)) return 0; u64 ds=RD64(mt+0x38); if(!ds || !mem_ok(ds)) return 0;
-  int i=((int(*)(u64,int,int,u64))M(0x1e422e0))(ds,tx,tz,0); tm_log2("target idx",i,0); if(i<0) return 1;   // not a target: swallow
+  int i=((int(*)(u64,int,int,u64))M(0x1e422e0))(ds,tx,tz,0);
+  // a multi-tile target (a door, a breakable wall: Data +0x22..+0x25 m_X1 m_Z1 m_X2 m_Z2, inclusive) is listed at one tile:
+  // a tap anywhere on its rectangle picks it (DataSet.get_Count 0x1e42100)
+  if(i<0){ int n=((int(*)(u64,u64))M(0x1e42100))(ds,0); if(n>64) n=64;
+    for(int k=0;k<n && i<0;k++){ u64 e=((u64(*)(u64,int,u64))M(0x1e42150))(ds,k,0); if(!e || !mem_ok(e)) continue;
+      int x1=(signed char)RD8(e+0x22), z1=(signed char)RD8(e+0x23), x2=(signed char)RD8(e+0x24), z2=(signed char)RD8(e+0x25);
+      if((x2>x1 || z2>z1) && tx>=x1 && tx<=x2 && tz>=z1 && tz<=z2) i=k; }
+    if(i>=0) tm_log2("target rect",i,0); }
+  tm_log2("target idx",i,0); if(i<0) return 1;   // not a target: swallow
   u64 d=((u64(*)(u64,int,u64))M(0x1e42150))(ds,i,0); if(!d) return 1;
   if(d==RD64(ts+0x78)){ press(BTN_A); return 1; }
   // TrySetTarget; the Tick only redraws when the index changes inside it (d-pad), so run its refresh path here:
@@ -130,7 +138,7 @@ static void bir_init(void){ o_bir_setup=hook_install(M(0x1f0b100),(u64)&hk_bir_s
 static int weapon_arrow_find(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(n>40) n=40;
   for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
     u64 nm=u_name(c); int s= il_str_eq(nm,"KeyHelpY") ? -1 : il_str_eq(nm,"KeyHelpX") ? 1 : 0;
-    if(s){ float x0,y0,x1,y1; if(kh_box(c,&x0,&y0,&x1,&y1) && ui_alpha(c)>=0.05f && x>=x0-8.f && x<x1+8.f && y>=y0-10.f && y<y1+10.f) return s; continue; }
+    if(s){ float x0,y0,x1,y1; if(kh_box(c,&x0,&y0,&x1,&y1) && ui_alpha(c)>=0.05f && x>=x0 && x<x1 && y>=y0 && y<y1) return s; continue; }
     if(d<5){ int r=weapon_arrow_find(c,d+1,x,y); if(r) return r; } }
   return 0; }
 static u64 command_btn(u64 ctr,float x,float y);
@@ -141,11 +149,10 @@ static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq
   { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,0.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;
       tm_log2("forecast subcommand",(s64)b,1); press(b); return 1; } }
   if(go_hit(RD64(r+0x20),x,y,0.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
-  if(!go_hit(RD64(r+0x28),x,y,8.f) && go_hit(RD64(r+0x20),x,y,8.f)){ tm_log2("forecast command",0,1); press(BTN_A); return 1; }
   { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
       if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
   // the second command beside it (m_CommandSubRoot, e.g. Engage Attack when Engage is possible): the button its children name
-  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,8.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;   // "CommandSub" = Icon + text: the (+) Engage prompt
+  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,0.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;   // "CommandSub" = Icon + text: the (+) Engage prompt
       tm_log2("forecast subcommand",(s64)b,0); press(b); return 1; } }
   // anything else on the two info panels (m_InfoLeft / m_InfoRight +0x40 / +0x48): X Details on that element
   for(int k=0;k<2;k++){ u64 pg=RD64(r+0x40+8ul*k); if(!uobj_ok(pg) || !u_active(pg)) continue;
@@ -155,7 +162,7 @@ static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq
 
 // a "Command" button object (children named after their button: A, B, ...): the button of its active child, 0 if missed
 static u64 command_btn(u64 ctr,float x,float y){ if(!uobj_ok(ctr)) return 0; u64 go=u_gameobject(ctr); if(!uobj_ok(go) || !u_active(go)) return 0;
-  float x0,y0,x1,y1; if(!tr_box(ctr,0,&x0,&y0,&x1,&y1) || x<x0-8.f || x>=x1+8.f || y<y0-8.f || y>=y1+8.f) return 0;
+  float x0,y0,x1,y1; if(!tr_box(ctr,0,&x0,&y0,&x1,&y1) || x<x0 || x>=x1 || y<y0 || y>=y1) return 0;   // battle UI: exact box (user, 2026-11-17)
   int k=u_child_count(ctr); if(k>8) k=8;
   for(int i=0;i<k;i++){ u64 c=u_child(ctr,i); if(!uobj_ok(c)) continue; u64 cg=u_gameobject(c); if(!uobj_ok(cg) || !u_active(cg)) continue;
     u64 b=kh_btn_named(u_name(c)); if(b) return b; }
@@ -278,16 +285,26 @@ static int mascot_color_tap(u64 p,float x,float y){ u64 c=RD64(p+0x90); if(!c ||
 // m_StampRectTransform = the stamp cursor), +0x78 m_CardRoot, +0xc8 m_EditMode. The stick / d-pad move the cursor (DirCall:
 // ProfileCardStampRoot.MoveStamp 0x2bf8bc0 (movement in screen px, range = ProfileCardRoot.GetRect 0x2322c90, isFrame =
 // m_EditMode < 2), then UpdateStampCursor 0x2bf4720); A picks up / puts a stamp under it.
-// A tap on the card moves the cursor straight to the point; on the cursor = A; off the card = B (no Back prompt).
-static int stamp_tap(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78); if(!uobj_ok(sr) || !uobj_ok(cr)) return 1;
-  float cx0,cy0,cx1,cy1; int on_card= tr_box(u_transform(cr),0,&cx0,&cy0,&cx1,&cy1) && x>=cx0 && x<cx1 && y>=cy0 && y<cy1;
-  if(!on_card) return 1;   // off the card: nothing (taps are never B)
-  u64 st=RD64(sr+0x30); float x0,y0,x1,y1; if(!uobj_ok(st) || !tr_box(st,0,&x0,&y0,&x1,&y1)) return 1;
-  float sx=(x0+x1)*0.5f, sy=(y0+y1)*0.5f, dx=x-sx, dy=y-sy;
-  if(dx*dx+dy*dy<28.f*28.f){ tm_log2("stamp: A",0,0); press(BTN_A); return 1; }
+// Edit modes (+0xc8, ZL / ZR switch them): 0 Stamp (a new stamp from the X list), 1 HoldHand (carrying a placed stamp),
+// 2 FreeHand (the hand: A picks up the stamp under it), 3 Eraser (A deletes the stamp under it). The cursor's hot spot is the
+// stamp (+0x30) in modes 0 / 1 and the hand / eraser icon (+0x58 m_StampIconRectTransform) in 2 / 3 (what ACall tests).
+// A tap on the card moves the cursor straight to the point and presses A (one tap: stamp / pick up / put down / erase);
+// off the card: nothing (taps are never B). A drag on the card carries the cursor with the finger (touch.h, t_cam 8).
+static int stamp_hot(u64 p,u64 sr,float*cx,float*cy){ u64 st=RD64(sr+(RDS32(p+0xc8)<2 ? 0x30 : 0x58)); float x0,y0,x1,y1;
+  if(!uobj_ok(st) || !tr_box(st,0,&x0,&y0,&x1,&y1)){ st=RD64(sr+0x30); if(!uobj_ok(st) || !tr_box(st,0,&x0,&y0,&x1,&y1)) return 0; }
+  *cx=(x0+x1)*0.5f; *cy=(y0+y1)*0.5f; return 1; }
+static int stamp_on_card(u64 p,float x,float y){ u64 cr=RD64(p+0x78); float cx0,cy0,cx1,cy1;
+  return uobj_ok(cr) && tr_box(u_transform(cr),0,&cx0,&cy0,&cx1,&cy1) && x>=cx0 && x<cx1 && y>=cy0 && y<cy1; }
+// moves the cursor's hot spot to (x,y) the way the stick does (MoveStamp clamps it to the card), then UpdateStampCursor
+static int stamp_goto(u64 p,float x,float y){ u64 sr=RD64(p+0x70), cr=RD64(p+0x78); if(!uobj_ok(sr) || !uobj_ok(cr)) return 0;
+  float sx,sy; if(!stamp_hot(p,sr,&sx,&sy)) return 0; float dx=x-sx, dy=y-sy; if(dx*dx+dy*dy<0.25f) return 1;
   Rect4 r=((Rect4(*)(u64,u64))M(0x2322c90))(cr,0); float k=(float)((int(*)(u64))M(0x2f8b920))(0)/1280.f;   // Screen.get_width
   ((void(*)(u64,float,float,float,float,float,float,int,u64))M(0x2bf8bc0))(sr,dx*k,-dy*k,r.x,r.y,r.w,r.h,RDS32(p+0xc8)<2,0);
-  ((void(*)(u64,u64))M(0x2bf4720))(p,0); tm_log2("stamp cursor",(s64)dx,(s64)dy); return 1; }
+  ((void(*)(u64,u64))M(0x2bf4720))(p,0); return 1; }
+static int stamp_tap(u64 p,float x,float y){
+  if(!stamp_on_card(p,x,y)) return 1;   // off the card: nothing (taps are never B)
+  if(stamp_goto(p,x,y)){ tm_log2("stamp: move + A, mode",RDS32(p+0xc8),0); press(BTN_A); }
+  return 1; }
 
 // ---- dialogue text log (Talk3D.TalkLogSequence; the log is Talk3D.TalkLog, a SingletonMonoBehaviour: get_Instance 0x21fe50 with
 // the MethodInfo cell main+0x62a4b18): +0x38 m_WindowList (TalkLogUI.Window[]: +0x18 m_RootObject), +0x78 m_CursorIndex,
@@ -384,16 +401,22 @@ static int screen_tap(float x,float y){ u64 p;
   // My Room -> Sleep: the wake-up scene (MyRoomWakeupSequence, a timeline with no prompt) skips on A: a tap is A
   if((p=proc_find("MyRoomWakeupSequence")) && !proc_sus(p)){ tm_log2("wake-up: A",0,0); press(BTN_A); return 1; }
   if((p=proc_find("TitleLoopSequence"))){ press(BTN_A); return 1; }   // "press any button" title screen
+  // fishing (App.FishingGameSequence): cast, hit, attack the fish, the finishing blow and the catch result all take A
+  if((p=proc_find("FishingGameSequence")) && !proc_sus(p)){ tm_log2("fishing: A",0,0); q_push(BTN_A,2,1); return 1; }
   if((p=proc_find("MovieSequence"))){ press(BTN_PLUS); return 1; }
   // battle animation (Combat.CombatInput.Update: B or + skips it): Settings -> Touchscreen -> Tap To Skip (Battle) On = a tap skips;
   // Off (default) = taps do nothing and drags move the camera (touch.h, the right stick that CombatInput reads into CameraPan)
   // the arena's training bouts run Combat.ArenaCombatSequence (not a CombatSequence subclass), same input
+  // the Engage transformation cutscene (Combat.EngageSequence, +0x99 m_bSkipped; its WaitFinish skips through GameSkip): a tap is +
+  if((p=proc_find("EngageSequence"))){ if(!RD8(p+0x99)){ tm_log2("engage cutscene: + skip",0,0); press(BTN_PLUS); } return 1; }
   if((p=proc_find("CombatSequence")) || (p=proc_find("ArenaCombatSequence"))){ if(g_tap_skip) press(BTN_PLUS); return 1; }
   if((p=proc_find("TutorialSequence")) && !proc_sus(p)) return tutorial_tap(p,x,y);
   if((p=proc_find("PlayerGenderSelectMenuSequence")) && !proc_sus(p)) return gender_tap(p,x,y);
   if((p=proc_find("MapSequenceTargetSelect")) && !proc_sus(p)){ if(forecast_tap(x,y)) return 1; int tx,tz; if(!map_tile_at(x,y,&tx,&tz)) return 1; return target_tap(p,tx,tz); }
   if((p=proc_find("MapSequenceHuman")) && !proc_sus(p)) return map_tap(p,x,y);
   if((p=proc_find("HubSequence")) && !proc_sus(p)) return hub_tap(x,y);
+  // the world map's free camera (entered by a drag, touch.h): it shows no prompt to leave, so a tap leaves it (ZL, as it came)
+  if((p=proc_find("GmapFreeCameraSequence")) && !proc_sus(p)){ tm_log2("world map: free camera off",0,0); press(BTN_ZL); return 1; }
   if((p=proc_find("GmapSequence")) && !proc_sus(p)) return gmap_tap(p,x,y);
   if((p=proc_find("EventSequence"))){ press(BTN_A); return 1; }
   if((p=proc_find("MapSequence")) && (proc_label(p)==17 || proc_label(p)==18)){ press(BTN_A); return 1; }   // "STAGE CLEAR!" (Complete) / "GAME OVER" (GameOver) wait for A

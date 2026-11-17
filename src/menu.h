@@ -31,7 +31,10 @@ static int menu_hit(u64 m,float x,float y){ u64 cam=menu_cam(m); int n=menu_item
   // Time Crystal (RewindMenu): text-only rows with 4 px gaps and boxes as wide as their text. Each visible row takes the full band:
   // the widest row's width, down / up to the midpoints with its neighbours (rows faded out at the top don't count)
   if(str_eq(il_cname(m),"RewindMenu")){ float bx0=1e9f, bx1=-1e9f; int k=0; float ry0[16], ry1[16]; int ri[16];
-    for(int i=0;i<n && k<16;i++){ u64 it=menu_item(m,i); float x0,y0,x1,y1; if(!item_box(it,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
+    // only the 11 shown rows around the selected one (RewindMenuContent.ShowRowMax): boxing all ~128 entries cost the frame
+    // tens of ms per tap (the user: sluggish)
+    int s=RDS32(m+0xa0), lo= s-4<0 ? 0 : s-4, hi= s+14>n ? n : s+14;
+    for(int i=lo;i<hi && k<16;i++){ u64 it=menu_item(m,i); float x0,y0,x1,y1; if(!item_box(it,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
       u64 c=RD64(it+0x18); if(!uobj_ok(c) || ui_alpha(u_transform(c))<0.3f) continue;
       if(RD64(c+0x18)!=it) continue;   // the 11 row slots are reused: an entry keeps its old slot link (stale), the slot's m_menuItem is the one shown
       if(x0<bx0) bx0=x0; if(x1>bx1) bx1=x1; ry0[k]=y0; ry1[k]=y1; ri[k]=i; k++; }
@@ -62,11 +65,19 @@ static int menu_bounds(u64 m,float*X0,float*Y0,float*X1,float*Y1){ u64 cam=menu_
 // BasicMenu.CursorMoveInstant 0x245c780 (= content +0x80 Cursor.MoveInstant): the cursor is on the new row at once, no slide
 static void menu_cursor_instant(u64 m){ u64 mc=RD64(m+0x70); if(!uobj_ok(mc)) return; u64 cu=RD64(mc+0x80); if(!cu || !mem_ok(cu)) return;
   ((void(*)(u64,u64))M(0x245c780))(m,0); }
-static void menu_select(u64 m,int i){ ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,i,il_vmi(m,BM_SETSEL)); ((void(*)(u64,u64))il_vfn(m,BM_CURSORSE))(m,il_vmi(m,BM_CURSORSE));
-  menu_cursor_instant(m);
-  // Time Crystal rewind list (RewindMenu): its KeyUp / KeyDown set the select index and +0xa8 together; the map preview follows
-  // +0xa8 (m_scrollNow +0xd0 chases it with the game's own rewind animation, UpdateSelectAndScroll 0x2019b60)
-  if(str_eq(il_cname(m),"RewindMenu")) WR32(m+0xa8,(u32)i); }
+static void menu_select(u64 m,int i){
+  // Time Crystal rewind list (RewindMenu): its KeyUp / KeyDown (0x201a860 / 0x201a910) only write the select index +0xa0 and
+  // +0xa8 together; UpdateSelectAndScroll (0x2019b60) chases them with the list's own animation and the map preview follows.
+  // Done the same way: the generic SetSelectIndex + CursorSelect stalled the game ~150 ms per tap (the user: sluggish).
+  if(str_eq(il_cname(m),"RewindMenu")){ if(i<0 || i>=RDS32(m+0x98)) return; WR32(m+0xa8,(u32)i); WR32(m+0xa0,(u32)i); return; }
+  // a row outside the shown window (+0x98 m_rowNum, +0x9c m_showRowNum, +0xa8 m_scrollIndex; the half-shown row under the
+  // list's edge still has a box): scroll it into view first, at once (SetScrollIndex 0x245c0f0, ScrollInstant 0x245c330),
+  // as the d-pad would; the cursor was left outside the window (arena Bond Effects, the user: wonky). Grid menus page their own way.
+  { int rn=RDS32(m+0x98), sn=RDS32(m+0x9c), sc=RDS32(m+0xa8);
+    if(sn>0 && rn>sn && i>=0 && i<rn && (i<sc || i>=sc+sn) && !il_is(m,"App","GridMenu")){
+      int ns= i<sc ? i : i-sn+1; ((void(*)(u64,int,u64))M(0x245c0f0))(m,ns,0); ((void(*)(u64,u64))M(0x245c330))(m,0); } }
+  ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,i,il_vmi(m,BM_SETSEL)); ((void(*)(u64,u64))il_vfn(m,BM_CURSORSE))(m,il_vmi(m,BM_CURSORSE));
+  menu_cursor_instant(m); }
 // tap on a menu: select the item; a tap on the item that is already selected confirms it (A). 1 = handled
 // page arrows a menu shows beside its items (not part of any item): tap = d-pad Left / Right, like the arrows say.
 // Guide (TutorialListSelectMenu): +0xe0 m_Root (TutorialListRoot): +0x70 m_RightArrow, +0x78 m_LeftArrow (GameObjects)
@@ -212,6 +223,23 @@ static u64 g_pend_menu; static int g_pend_idx, g_pend_ttl, g_pend_tabs; static f
 // a tap that switches lists makes the game's cursor jump instead of sliding over (hk_move_front: BasicMenu.MoveFrontCursorFrom)
 static int g_cursor_jump;
 static u64 g_rank_menu; static int g_rank_idx, g_rank_ttl;
+// My Room -> Recall -> Supports (MyRoomRelianceSubSelect): the C / B / A / S letters on a row (its content +0x60.. m_RankC, B, A, S).
+// The rank cursor is the row's CursorTop (item get_Cursor 0x2098c40: +0x10 OpenCount, +0x40 m_selectIndex; SetSelectIndex 0x2095740).
+// A tap on an open letter: the row's rank choice opens on that letter (row selected, A, then the cursor set: g_letter_*);
+// on the chosen letter during the choice: A (views it). Letters not open yet do nothing.
+static u64 g_letter_menu; static int g_letter_k, g_letter_ttl, g_letter_a;
+static int rank_letter_tap(u64 m,float x,float y){ if(!str_eq(il_cname(m),"MyRoomRelianceSubSelect")) return 0;
+  int n=menu_items(m), hi=-1, hk=-1; if(n>64) n=64;
+  for(int i=0;i<n && hi<0;i++){ u64 it=menu_item(m,i); if(!it || !mem_ok(it)) continue; u64 c=RD64(it+0x18); if(!uobj_ok(c) || RD64(c+0x18)!=it) continue;
+    for(int k=0;k<4;k++) if(go_hit(RD64(c+0x60+8ul*k),x,y,0.f)){ hi=i; hk=k; break; } }
+  if(hi<0) return 0;
+  u64 it=menu_item(m,hi); u64 cu=((u64(*)(u64,u64))M(0x2098c40))(it,0); int open=((int(*)(u64,u64))M(0x2098d30))(it,0);   // the row's own GetOpenCount
+  tm_log2("support letter",hi,hk); if(hk>=open){ tm_log2("support letter: not open",open,0); return 1; }
+  int sel=RDS32(m+0xa0), ph=RD8(m+0xc4)!=0;
+  if(ph && hi==sel){ if(RDS32(cu+0x40)==hk) press(BTN_A); else ((void(*)(u64,int,u64))M(0x2095740))(cu,hk,0); return 1; }
+  if(ph){ press(BTN_B); g_rank_menu=m; g_rank_idx=hi; g_rank_ttl=60; }   // another row's choice is open: close it first (menu_frame)
+  else { if(hi!=sel) menu_select(m,hi); press(BTN_A); }
+  g_letter_menu=m; g_letter_k=hk; g_letter_ttl=90; g_letter_a=ph; return 1; }
 static int menu_pair_tap(u64 m,float x,float y){ const char*cn=il_cname(m);
   // Trade (App.SortieSequenceTrade: +0x80 m_menuL, +0x88 m_menuR, both SortieTradeItemMenu): the focused side's own KeyRight /
   // KeyLeft (vtable 43 / 42) moves to the other side, as the d-pad does
@@ -260,6 +288,8 @@ static const char* const k_two_tap[]={
   "ArenaBondGodSelectMenu", "ArenaBondLevelSelectMenu",                                     // arena: emblem / level picks
   "RefineShopRefineBaseMenu", "RefineShopRefineTargetMenu", "RefineShopEngraveItemSelectMenu", "RefineShopEngraveGodMenu",   // smithy: refine, engrave
   "RefineShopExchangeSourceMenu",                                                            // smithy: exchange, metal offered (metal wanted is one tap)
+  "RefineGodWeaponSelectMenu", "RefineGodWeaponParamMenu",                                  // Ring Chamber Engage Weapons: weapon, then the stat (Augment / Strip stay one tap)
+  "WellItemSelectMenu", "ClassChangeJobMenu", "ChallengeMapSelectMenu",                    // ancient well items, class change, Tempest Trials maps
   "AmiiboAccessoryMenu", "AmiiboSoundMenu" };                                               // amiibo gazette: outfits, songs
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
@@ -410,6 +440,7 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   // Support / Bond partner rows and Wake-Up Events (MyRoomRelianceSubSelect / MyRoomWakeupSelectMenu): A on a row starts its rank
   // choice (+0xc4 IsRankPhase, the row stays marked IsSelected); the row's own BCall ends it. A tap on another row during it
   // presses B first and selects the row once the rank choice is over, so only one row is ever marked.
+  if(rank_letter_tap(m,x,y)) return 1;
   if((str_eq(il_cname(m),"MyRoomRelianceSubSelect") || str_eq(il_cname(m),"MyRoomWakeupSelectMenu")) && RD8(m+0xc4) && i!=RDS32(m+0xa0)){
     tm_log2("rank phase: B, then row",i,0); press(BTN_B); g_rank_menu=m; g_rank_idx=i; g_rank_ttl=60; return 1; }
   if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
@@ -445,6 +476,11 @@ static int g_latch_gone;
 static void menu_frame(void){ g_menu=g_menu_tick; g_menu_tick=0; ring_ref_frame();
   if(g_rank_menu){ if(--g_rank_ttl<=0) g_rank_menu=0;
     else if(g_menu==g_rank_menu && !q_busy() && !RD8(g_menu+0xc4)){ menu_select(g_menu,g_rank_idx); g_rank_menu=0; } }
+  if(g_letter_menu){ if(--g_letter_ttl<=0) g_letter_menu=0;   // a support letter tap: open the row's choice, then put its cursor on the letter
+    else if(g_menu==g_letter_menu && !q_busy() && !g_rank_menu){ u64 m=g_menu;
+      if(!RD8(m+0xc4)){ if(g_letter_a){ g_letter_a=0; press(BTN_A); } }
+      else { u64 it=menu_item(m,RDS32(m+0xa0)); u64 cu= it ? ((u64(*)(u64,u64))M(0x2098c40))(it,0) : 0;
+        if(cu && mem_ok(cu)){ ((void(*)(u64,int,u64))M(0x2095740))(cu,g_letter_k,0); tm_log2("support letter set",g_letter_k,0); } g_letter_menu=0; } } }
   if(g_latch){ if(proc_find("MapNavigationSequence")) g_latch_gone=0; else if(++g_latch_gone>45){ g_latch=0; g_latch_gone=0; } }   // the screen never came or is gone: let go
   if(g_cursor_jump>0) g_cursor_jump--;
   if(g_pend_menu){ if(g_menu==g_pend_menu){ if(g_pend_tabs){ kind_tabs_tap(g_menu,g_pend_x,g_pend_y); g_pend_menu=0; return; }

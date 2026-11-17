@@ -138,7 +138,7 @@ static void process(NpadState*s,int n,u32 id,int h,u64 lr){
   if(id!=g_primary) return;
   if(!g_pad_hooked && h!=H_LEFT && h!=H_RIGHT){ static int last_h=-1; if(last_h<0) last_h=h; if(h==last_h) frame_tick(); }   // fallback without the Pad hook
   if(s[0].buttons&0xffffu) g_touch_mode=0;   // real pad input brings the cursor back
-  for(int i=0;i<n;i++){ s[i].buttons|=g_inject|g_latch; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } if(g_ls_x||g_ls_y){ s[i].l.x=g_ls_x; s[i].l.y=g_ls_y; } }
+  for(int i=0;i<n;i++){ s[i].buttons|=g_inject|g_latch|g_hold; if(g_rs_x||g_rs_y){ s[i].r.x=g_rs_x; s[i].r.y=g_rs_y; } if(g_ls_x||g_ls_y){ s[i].l.x=g_ls_x; s[i].l.y=g_ls_y; } }
 #ifdef TM_DEBUG
   if(dbg_ls_n>0){ for(int i=0;i<n;i++){ s[i].l.x=dbg_ls_x; s[i].l.y=dbg_ls_y; } }
 #endif
@@ -215,7 +215,10 @@ static void dbg_ext(const char*p){
     u64 t=il_type("App.HubAccess, Assembly-CSharp"); u64 arr= t ? ((u64(*)(u64,u64))M(0x32ef7d0))(t,0) : 0; int n= arr&&mem_ok(arr) ? (int)RD64(arr+0x18) : 0;
     for(int k=0;k<n && k<80;k++){ u64 a=RD64(arr+0x20+8ul*k); if(!uobj_ok(a)) continue; u64 go=u_gameobject(a); if(!uobj_ok(go) || !u_active(go)) continue;
       V3 q=((V3(*)(u64,u64))M(0x378f890))(u_transform(a),0); oi(k); oc(' '); os_ilstr(RD64(a+0x18)); oc(' '); of(q.x); oc(' '); of(q.z);
-      float dx=q.x-me.x, dz=q.z-me.z; os(" d "); of(tm_sqrt(dx*dx+dz*dz)); oc('\n'); } }
+      float dx=q.x-me.x, dz=q.z-me.z; os(" d "); of(tm_sqrt(dx*dx+dz*dz));
+      { u64 ad=RD64(a+0x60); u64 dd= ad && mem_ok(ad) ? RD64(ad+0x18) : 0;   // HubAccessData -> HubDisposData: ScriptName, ContentType
+        if(dd && mem_ok(dd)){ os(" scr "); u64 s=RD64(dd+0x90); if(s && mem_ok(s)) os_ilstr(s); os(" ct "); oi(RDS32(dd+0x68)); } }
+      oc('\n'); } }
   // warpa K [d]: TEST ONLY. Put Alear next to interactable K of `access` (its position, d/100 units back towards her, default 1.5):
   // Transform.set_position (0x378f940) on the player's transform. For blind testing when a wall blocks the walk.
   else if(starts(p,"warpa")){ p+=5; int K=(int)parse_num(&p); s64 dd=(s64)parse_num(&p); float back= dd>0 ? (float)dd/100.f : 1.5f;

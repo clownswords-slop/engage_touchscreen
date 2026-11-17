@@ -23,6 +23,8 @@ static void on_tap(float x,float y){
 // is one push. The camera orbits the cursor at the screen centre: StickRRight (+30) moves the ground below the centre right and
 // the ground beyond it left, so the point under the finger follows it like a turntable: a drag that starts in the lower half
 // pushes the stick the finger's way, one in the upper half the other way.
+#define FISH_STICK_PX 80.f
+#define FISH_DEAD 12.f
 #define CAM_DEAD 30.f
 #define CAM_GAIN 0.12f
 #define CAM_YAW_STEP 128.f    // as in Three Houses (the user had it at 17% of the width on 2026-11-11, then asked for this back)
@@ -84,28 +86,62 @@ static void cam_frame(void){ g_cam_rs_x=g_cam_rs_y=0; if(!t_cam) return;
   if(t_cam==5){ float sx=t_sdx*STICK_DRAG_GAIN, sy=t_sdy*STICK_DRAG_GAIN; t_sdx=t_sdy=0.f;   // world map free camera: left stick
     if(sx>1.f) sx=1.f; if(sx<-1.f) sx=-1.f; if(sy>1.f) sy=1.f; if(sy<-1.f) sy=-1.f;
     g_ls_x=(s32)(-sx*32000.f); g_ls_y=(s32)(sy*32000.f); return; }   // drag right = view moves left; drag down = view moves up
+  if(t_cam==6){ float sx=(t_x-t_x0)/FISH_STICK_PX, sy=(t_y-t_y0)/FISH_STICK_PX, l=f_sqrt(sx*sx+sy*sy);   // fishing: a virtual stick
+    if(l*FISH_STICK_PX<FISH_DEAD){ g_ls_x=g_ls_y=0; return; } if(l>1.f){ sx/=l; sy/=l; }
+    g_ls_x=(s32)(sx*32000.f); g_ls_y=(s32)(-sy*32000.f); return; }   // the finger's way: right = right, up = up
   /* t_cam 2 (free roam): touch_update writes the camera targets itself (hub_drag) */ }
 
+// a held touch = held A (the game's own fast-forward): during an attack with Tap To Skip Off (a tap there skips with + when On),
+// and through the enemy phase (MapSequence label TurnAI). Once the screen stops qualifying the hold ends for this touch, and its release
+// is no tap (a long press that outlived the enemy phase must not pick a unit in the player phase)
+static int t_held, t_hold_off;
+static int hold_a_ok(void){ u64 ms;   // the whole enemy phase (MapSequence label 13 TurnAI; MapSequenceAI only runs in bursts), its attacks too
+  if(!g_menu && (ms=proc_find("MapSequence")) && proc_label(ms)==13) return 1;
+  if(proc_find("CombatSequence") || proc_find("ArenaCombatSequence")) return !g_tap_skip;
+  return 0; }
+// fishing (App.FishingGameSequence: the guide circle and the pull read the LEFT stick): a drag is a virtual stick, deflected by
+// the finger's offset from where it touched down (full at FISH_STICK_PX), held while the finger stays there
+static int fish_ok(void){ u64 f; return !g_menu && (f=proc_find("FishingGameSequence")) && !proc_sus(f); }
+// Profile Card stamps (ProfileCardStampMenu, screens.h stamp_goto): a drag that starts on the card carries the cursor with the
+// finger (t_cam 8). In Hand mode (2) it first presses A where it started (picks up the stamp there, the mode turns HoldHand 1) and
+// waits for that before following; lifting the finger in Stamp (0) / HoldHand (1) mode presses A (stamps / puts the stamp down)
+static int t_stamp_wait;
+static u64 stamp_proc(void){ u64 p=proc_find("ProfileCardStampMenu"); return p && !proc_sus(p) ? p : 0; }
 static void touch_update(TouchScreenState1*ts){
   if(ts->count>0){
     float x=(float)ts->t[0].x, y=(float)ts->t[0].y;
-    if(!t_down){ g_touch_mode=1; t_down=1; t_settle=2; t_swiped=0; t_cam=0; t_p0=g_poll; t_x0=t_x=t_sx=x; t_y0=t_y=t_sy=y; return; }
+    if(!t_down){ g_touch_mode=1; t_down=1; t_settle=2; t_swiped=0; t_cam=0; t_held=0; t_hold_off=0; t_p0=g_poll; t_x0=t_x=t_sx=x; t_y0=t_y=t_sy=y; return; }
+    if(!t_hold_off){ if(hold_a_ok()){ if(!t_held) tm_log2("hold A",0,0); t_held=1; g_hold=BTN_A; } else if(t_held){ t_hold_off=1; g_hold=0; tm_log2("hold A: off",0,0); } }
     if(t_settle>0){ t_settle--; t_x0=t_x=t_sx=x; t_y0=t_y=t_sy=y; return; }
     if(x==0.f && y==0.f){ x=t_x; y=t_y; }   // dragged off screen: still held, reported at (0,0)
     t_x=x; t_y=y;
     if(!g_menu){ float dx=x-t_x0, dy=y-t_y0;
       if(!t_cam && dx*dx+dy*dy>CAM_DEAD*CAM_DEAD && map_cam_ok() && cam_tilt(&t_cam_tilt0)){
         t_cam=1; t_cam_target=t_cam_tilt0; t_cam_steps=0; t_cam_ysign= t_y0>=360.f ? 1 : -1; tm_log2("map camera",(s64)t_cam_tilt0,0); }
+      if(!t_cam && dx*dx+dy*dy>FISH_DEAD*FISH_DEAD && fish_ok()){ t_cam=6; tm_log2("fishing stick",0,0); }
+      if(t_cam==6) return;
+      { u64 sp; if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (sp=stamp_proc()) && stamp_on_card(sp,t_x0,t_y0)){
+          t_cam=8; t_stamp_wait=0; int md=RDS32(sp+0xc8); stamp_goto(sp,t_x0,t_y0);
+          if(md==2){ press(BTN_A); t_stamp_wait=8; } tm_log2("stamp drag, mode",md,0); } }
+      if(t_cam==8){ u64 sp=stamp_proc(); if(!sp) return;
+        if(t_stamp_wait>0){ t_stamp_wait--; if(RDS32(sp+0xc8)!=1) return; t_stamp_wait=0; tm_log2("stamp drag: picked up",0,0); }
+        stamp_goto(sp,x,y); return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && hub_cam_ok() && hub_angles(&t_hub_yawt,&t_hub_pitt)){
         t_cam=2; t_hlx=t_x0; t_hly=t_y0; tm_log2("hub camera",(s64)t_hub_yawt,(s64)t_hub_pitt); }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && (proc_find("MascotColorChangeMenu") || proc_find("CombatSequence") || proc_find("ArenaCombatSequence") || proc_find("UnitInfoSequence") || proc_find("AnimalAccessSequence")
          || proc_find("AccessoryShopBuyRootProc") || proc_find("AccessoryShopChangeRootProc"))){
         t_cam=4; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("stick camera",0,0); }   // Sommie colour screen / battle animation / observing an animal ("R View") / boutique "+ View"
       if(t_cam==4){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
-      // world map free camera (Gmap...GmapFreeCameraSequence: TryLRMove / TryUDMove read the LEFT stick): the map follows the finger
-      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 fc=proc_find("GmapFreeCameraSequence");
-        if(fc && !proc_sus(fc)){ t_cam=5; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("world map camera",0,0); } }
+      // world map free camera (Gmap...GmapFreeCameraSequence: TryLRMove / TryUDMove read the LEFT stick): the map follows the finger;
+      // the wyvern ride's aim too (DragonRideCamera.UpdateCameraParam_Key reads the left stick into m_AngleX / Y)
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 fc=proc_find("GmapFreeCameraSequence"); if(!fc) fc=proc_find("DragonRideGameSequence");
+        if(fc && !proc_sus(fc)){ t_cam=5; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; tm_log2("world map / wyvern camera",0,0); } }
       if(t_cam==5){ t_sdx+=x-t_rx; t_sdy+=y-t_ry; t_rx=x; t_ry=y; return; }
+      // the world map itself (GmapSequence idle, label 7 / 8): the camera stays on Alear there, only the free camera (ZL) looks
+      // around: a drag presses ZL and pans once GmapFreeCameraSequence runs (t_cam 7 waits for it; a tap leaves it, screens.h)
+      if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD){ u64 g=proc_find("GmapSequence"); int lb= g ? proc_label(g) : -1;
+        if(g && !proc_sus(g) && (lb==7 || lb==8)){ t_cam=7; q_push(BTN_ZL,2,2); tm_log2("world map: free camera",0,0); } }
+      if(t_cam==7){ u64 fc=proc_find("GmapFreeCameraSequence"); if(fc && !proc_sus(fc)){ t_cam=5; t_rx=x; t_ry=y; t_sdx=t_sdy=0.f; } return; }
       if(!t_cam && dx*dx+dy*dy>HUB_DEAD*HUB_DEAD && ring_clean_seq()){ t_cam=3; t_rx=t_x0; t_ry=t_y0; tm_log2("ring turn",0,0); }
       if(t_cam==3){ ring_rotate((x-t_rx)*RING_GAIN,(t_ry-y)*RING_GAIN); t_rx=x; t_ry=y; return; }
       if(t_cam==1){ int st=(int)(dx/CAM_YAW_STEP);   // whole CAM_YAW_STEP px steps of horizontal travel (truncated towards 0)
@@ -130,14 +166,22 @@ static void touch_update(TouchScreenState1*ts){
     // in a menu, a drag scrolls: one d-pad step per SWIPE_Y (rows) / SWIPE_X (columns) of travel, in the finger's direction
     // (drag down = cursor down, drag right = right; the user found the content-follows-finger direction inverted)
     // the steps stop at the first / last row instead of wrapping around (t_pred: the row the queued steps will reach)
+    // the talk log (App.Talk3D.TalkLogSequence: d-pad Up / Down move its cursor through the lines): a vertical drag steps it
+    // the way a drag steps a menu (finger down = cursor down)
+    if(!g_menu){ u64 tl=proc_find("TalkLogSequence"); if(tl && !proc_sus(tl)){ float dy=y-t_sy;
+        if(dy>=SWIPE_Y){ q_push(BTN_D,1,1); t_sy+=SWIPE_Y; if(!t_swiped) tm_log2("talk log scroll",0,0); t_swiped=1; }
+        else if(dy<=-SWIPE_Y){ q_push(BTN_U,1,1); t_sy-=SWIPE_Y; if(!t_swiped) tm_log2("talk log scroll",0,0); t_swiped=1; } } }
     if(g_menu){ float dx=x-t_sx, dy=y-t_sy; if(!t_swiped) t_pred=RDS32(g_menu+0xa0); int n=menu_items(g_menu);
       if(dy>=SWIPE_Y){ if(t_pred<n-1){ q_push(BTN_D,1,1); t_pred++; } t_sy+=SWIPE_Y; t_swiped=1; }         // finger down: next rows
       else if(dy<=-SWIPE_Y){ if(t_pred>0){ q_push(BTN_U,1,1); t_pred--; } t_sy-=SWIPE_Y; t_swiped=1; }
       else if(dx>=SWIPE_X){ q_push(BTN_R,1,1); t_sx+=SWIPE_X; t_swiped=1; }
       else if(dx<=-SWIPE_X){ q_push(BTN_L,1,1); t_sx-=SWIPE_X; t_swiped=1; } }
   } else if(t_down){
-    t_down=0;
-    if(t_cam){ t_cam=0; g_cam_rs_x=g_cam_rs_y=0; return; }   // a camera drag is not a tap
+    t_down=0; g_hold=0;
+    if(t_held && t_hold_off){ t_cam=0; g_cam_rs_x=g_cam_rs_y=0; return; }   // the hold outlived its screen: not a tap
+    if(t_cam==8){ u64 sp=stamp_proc(); int md= sp ? RDS32(sp+0xc8) : -1;
+      if(md==0 || md==1){ stamp_goto(sp,t_x,t_y); press(BTN_A); } tm_log2("stamp drag: lift, mode",md,0); }
+    if(t_cam){ if(t_cam==6) g_ls_x=g_ls_y=0; t_cam=0; g_cam_rs_x=g_cam_rs_y=0; return; }   // a camera drag is not a tap
     float dx=t_x-t_x0, dy=t_y-t_y0;
     if(!t_swiped && dx*dx+dy*dy<30.f*30.f){ int held= q_phase==1 && q_cur; q_clear(); if(held) q_push(0,1,1); on_tap(t_x,t_y); }
   }

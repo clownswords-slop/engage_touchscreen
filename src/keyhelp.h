@@ -46,11 +46,12 @@ static u64 proc_find(const char*n);   // screens.h
 // battle map free cursor: the ZR prompt is "Additional Info", shown while ZR is held: a tap latches it (released by a tap off it)
 static int kh_latch_ok(void){ return proc_find("MapSequenceHuman") && !g_menu; }
 static int kh_tap(float x,float y){ kh_sweep(); int tb=-1;
+  float sl= proc_find("MapSequence") ? 0.f : 6.f;   // battle map: a prompt's exact box (the user: taps near it are for the tiles under it)
   for(int i=g_kh_n-1;i>=0;i--){ u64 c=g_kh[i]; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
     if(!g_kh_alpha_only && str_eq(il_cname(c),"KeyHelpTitleBarController")){ if(tb<0) tb=titlebar_shown(); if(!tb) continue; }
     u64 l=RD64(c+0x18); int n=list_n(l); if(n>24) n=24;
     for(int k=0;k<n;k++){ u64 o=list_at(l,k); if(!uobj_ok(o) || !u_active(o)) continue; float x0,y0,x1,y1;
-      u64 otr=u_go_transform(o); if(!kh_box(otr,&x0,&y0,&x1,&y1) || x<x0-6.f || x>=x1+6.f || y<y0-6.f || y>=y1+6.f) continue;
+      u64 otr=u_go_transform(o); if(!kh_box(otr,&x0,&y0,&x1,&y1) || x<x0-sl || x>=x1+sl || y<y0-sl || y>=y1+sl) continue;
       if(ui_alpha(otr)<0.05f) continue;   // faded out
       u64 nm=u_name(o);
       for(u32 j=0;j<sizeof(k_kh)/sizeof(k_kh[0]);j++) if(il_str_eq(nm,k_kh[j].n)){
