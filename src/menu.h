@@ -31,12 +31,17 @@ static int menu_hit(u64 m,float x,float y){ u64 cam=menu_cam(m); int n=menu_item
   // Time Crystal (RewindMenu): text-only rows with 4 px gaps and boxes as wide as their text. Each visible row takes the full band:
   // the widest row's width, down / up to the midpoints with its neighbours (rows faded out at the top don't count)
   if(str_eq(il_cname(m),"RewindMenu")){ float bx0=1e9f, bx1=-1e9f; int k=0; float ry0[16], ry1[16]; int ri[16];
-    // only the 11 shown rows around the selected one (RewindMenuContent.ShowRowMax): boxing all ~128 entries cost the frame
-    // tens of ms per tap (the user: sluggish)
-    int s=RDS32(m+0xa0), lo= s-4<0 ? 0 : s-4, hi= s+14>n ? n : s+14;
-    for(int i=lo;i<hi && k<16;i++){ u64 it=menu_item(m,i); float x0,y0,x1,y1; if(!item_box(it,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
-      u64 c=RD64(it+0x18); if(!uobj_ok(c) || ui_alpha(u_transform(c))<0.3f) continue;
-      if(RD64(c+0x18)!=it) continue;   // the 11 row slots are reused: an entry keeps its old slot link (stale), the slot's m_menuItem is the one shown
+    // the 11 row slots themselves (RewindMenuContent.GetRewindMenuItemContent(i) 0x201b630, ShowRowMax), not the ~128 entries
+    // (boxing them all cost the frame tens of ms per tap, the user: sluggish). Each slot knows the entry it shows (+0x18
+    // m_menuItem; +0x60 m_MenuPosIndex = its index). The entries' links back to their slot (+0x18) go stale once the list
+    // scrolls more than a row at a time (MoveUp / MoveDown by 2+): going entry -> slot rejected most rows and taps did
+    // nothing (the user: stuck, can't select other items). Rows faded out past the shown nine (alpha 0) don't count.
+    u64 rc=RD64(m+0x70); if(!uobj_ok(rc)) return -1;
+    for(int q=0;q<11;q++){ u64 sl=((u64(*)(u64,int,u64))M(0x201b630))(rc,q,0); if(!uobj_ok(sl)) continue; u64 it=RD64(sl+0x18); if(!it) continue;
+      int i=RDS32(sl+0x60); if(i<0 || i>=n || menu_item(m,i)!=it){ i=-1; for(int j=0;j<n;j++) if(menu_item(m,j)==it){ i=j; break; } }
+      if(i<0) continue;
+      float x0,y0,x1,y1; if(!comp_box(sl,cam,&x0,&y0,&x1,&y1) || y1<0.f || y0>720.f) continue;
+      if(ui_alpha(u_transform(sl))<0.3f) continue;
       if(x0<bx0) bx0=x0; if(x1>bx1) bx1=x1; ry0[k]=y0; ry1[k]=y1; ri[k]=i; k++; }
     if(!k || x<bx0 || x>=bx1+20.f) return -1;
     for(int j=0;j<k;j++){ float lo=ry0[j], hi=ry1[j];
@@ -147,12 +152,17 @@ static int troop_page_arrow(u64 m,float x,float y){ u64 s=troop_sortmenu(m); if(
 // Category), Achievements (AchievementMenu: content +0x118 List<GameObject> m_categoryIcon, GetSelectCategory 0x27cdf30).
 static int tabs_cur_matlist(u64 m){ u64 c=RD64(m+0x70); return uobj_ok(c) ? RDS32(c+0xe8) : -1; }
 static int tabs_cur_achieve(u64 m){ return ((int(*)(u64,u64))M(0x27cdf30))(m,0); }
-typedef struct { const char*cls; u32 list_off; int (*cur)(u64 m); } IndexTabs;
-static const IndexTabs k_index_tabs[]={ {"MaterialListMenu",0xf8,tabs_cur_matlist}, {"AchievementMenu",0x118,tabs_cur_achieve} };
+// Ancient Well items (WellItemSelectMenu: +0xd0 m_SelectedKindIndex; content +0x128 Image[] m_KindIconBgImageList, one per kind
+// in display order; KeyLeft / KeyRight = SetItemKindIndex(index -+ 1))
+static int tabs_cur_well(u64 m){ return RDS32(m+0xd0); }
+typedef struct { const char*cls; u32 list_off; int (*cur)(u64 m); int arr; } IndexTabs;   // arr: a C# array, not a List
+static const IndexTabs k_index_tabs[]={ {"MaterialListMenu",0xf8,tabs_cur_matlist}, {"AchievementMenu",0x118,tabs_cur_achieve},
+  {"WellItemSelectMenu",0x128,tabs_cur_well,1} };
 static int index_tabs_tap(u64 m,float x,float y){ const char*cn=il_cname(m); const IndexTabs*it=0;
   for(u32 j=0;j<sizeof(k_index_tabs)/sizeof(k_index_tabs[0]);j++) if(str_eq(cn,k_index_tabs[j].cls)) it=&k_index_tabs[j];
-  if(!it) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 l=RD64(c+it->list_off); int n=list_n(l); if(n>12) n=12;
-  int t=-1; for(int k=0;k<n;k++){ u64 o=list_at(l,k); u64 tr=any_transform(o); if(!tr) continue; u64 go=u_gameobject(tr); if(!uobj_ok(go) || !u_active(go)) continue;
+  if(!it) return 0; u64 c=RD64(m+0x70); if(!uobj_ok(c)) return 0; u64 l=RD64(c+it->list_off); if(!l || !mem_ok(l)) return 0;
+  int n= it->arr ? (int)RD64(l+0x18) : list_n(l); if(n<0) n=0; if(n>12) n=12;
+  int t=-1; for(int k=0;k<n;k++){ u64 o= it->arr ? RD64(l+0x20+8ul*k) : list_at(l,k); u64 tr=any_transform(o); if(!tr) continue; u64 go=u_gameobject(tr); if(!uobj_ok(go) || !u_active(go)) continue;
     float x0,y0,x1,y1; if(tr_box(tr,0,&x0,&y0,&x1,&y1) && x>=x0-6.f && x<x1+6.f && y>=y0-8.f && y<y1+8.f){ t=k; break; } }
   if(t<0){ int a=page_arrow_find(u_transform(c),0,x,y); if(!a) return 0; tm_log2("tabs arrow",a,0);
     int sl= a>0 ? 43 : 42; ((void(*)(u64,int,u64))il_vfn(m,sl))(m,1,il_vmi(m,sl)); return 1; }
@@ -290,8 +300,11 @@ static const char* const k_two_tap[]={
   "RefineShopExchangeSourceMenu",                                                            // smithy: exchange, metal offered (metal wanted is one tap)
   "RefineGodWeaponSelectMenu", "RefineGodWeaponParamMenu",                                  // Ring Chamber Engage Weapons: weapon, then the stat (Augment / Strip stay one tap)
   "WellItemSelectMenu", "ClassChangeJobMenu", "ChallengeMapSelectMenu",                    // ancient well items, class change, Tempest Trials maps
+  "RodMenu",                                                                                 // battle: Staff (MapItemMenu.RodMenu)
   "AmiiboAccessoryMenu", "AmiiboSoundMenu" };                                               // amiibo gazette: outfits, songs
+static int rr_list_menu(u64 m);
 static int menu_two_tap(u64 m){ const char*c=il_cname(m);
+  if(rr_list_menu(m)) return 1;   // Ring Reference ring list (X List: GodAndRingListWindow+Menu)
   if(str_has(c,"UnitSelect") && !str_has(c,"SubMenu")) return 1;
   // new game birthday (Month / Day boxes): A confirms the whole date, so a tap only picks the box (its arrows change the value)
   { u64 it=menu_item(m,0); if(it && str_eq(il_cname(it),"MonthMenuItem")) return 1; }

@@ -51,23 +51,18 @@ static void human_indirect(u64 h){ if(RDS32(h+0xc0)==1) ((void(*)(u64,int,u64))M
 #define TILE 5.f
 static float g_tile_off=0.5f;
 static int ifloor(float f){ int i=(int)f; return (f<(float)i) ? i-1 : i; }
-// a visible piece under tr (3 levels) that holds (x, y): one strip or icon, not a container (under 130 px tall), so the map seen
-// between the bar's parts stays the map
-static int piece_hit(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(n>24) n=24;
-  for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
-    float a,b,e,f; if(tr_box(c,0,&a,&b,&e,&f) && e>a && f>b && f-b<130.f && x>=a && x<e && y>=b && y<f && ui_alpha(c)>=0.05f) return 1;
-    if(d<3 && piece_hit(c,d+1,x,y)) return 1; }
-  return 0; }
+// battle UI (user, 2026-11-17): taps count only on what is drawn (vis_hit, il2.h), never on a box around it, so tiles seen
+// between or beside the pieces stay tiles
 // The unit bar at the bottom of the battle map (App.UnitInfo, a ProcInst: +0x80 m_Windows, UnitInfo.Window[]: +0x40 m_IsVisible,
 // +0x30 m_UnitInfoWindowSimple (UnitInfoWindow: +0x18 m_GameObject)): the 720p box of its visible window that holds (x, y).
-// Its root spans the screen, so a tap counts only on one of its pieces (piece_hit). A window with no unit and no emblem
+// Its root spans the screen, so a tap counts only on one of its drawn pieces (vis_hit). A window with no unit and no emblem
 // (m_Unit +0x18, m_God +0x20 both null: the cursor is on an empty tile) still reports visible with its pieces active, but shows
 // nothing: taps there go to the map.
 static int unitbar_hit(float x,float y){ u64 p=proc_find("UnitInfo"); if(!p || !mem_ok(p)) return 0; u64 arr=RD64(p+0x80);
   if(!arr || !mem_ok(arr)) return 0; int n=(int)RD64(arr+0x18); if(n>4) n=4;
   for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd) || !RD8(wd+0x40) || (!RD64(wd+0x18) && !RD64(wd+0x20))) continue; u64 uw=RD64(wd+0x30);
     if(!uw || !mem_ok(uw)) continue; u64 go=RD64(uw+0x18); if(!uobj_ok(go) || !u_active(go)) continue;
-    if(piece_hit(u_go_transform(go),0,x,y)){ tm_log2("unit bar",(s64)x,(s64)y); return 1; } }
+    if(vis_hit(u_go_transform(go),5,x,y)){ tm_log2("unit bar",(s64)x,(s64)y); return 1; } }
   return 0; }
 static int map_tap(u64 h,float x,float y){ if(unitbar_hit(x,y)){ details_at(x,y,BTN_X); return 1; }   // X Details on the tapped element
   V3 w; if(!map_unproject(x,y,&w)) return 0; human_indirect(h);
@@ -138,7 +133,7 @@ static void bir_init(void){ o_bir_setup=hook_install(M(0x1f0b100),(u64)&hk_bir_s
 static int weapon_arrow_find(u64 tr,int d,float x,float y){ int n=u_child_count(tr); if(n>40) n=40;
   for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(!uobj_ok(c)) continue; u64 go=u_gameobject(c); if(!uobj_ok(go) || !u_active(go)) continue;
     u64 nm=u_name(c); int s= il_str_eq(nm,"KeyHelpY") ? -1 : il_str_eq(nm,"KeyHelpX") ? 1 : 0;
-    if(s){ float x0,y0,x1,y1; if(kh_box(c,&x0,&y0,&x1,&y1) && ui_alpha(c)>=0.05f && x>=x0 && x<x1 && y>=y0 && y<y1) return s; continue; }
+    if(s){ if(vis_hit(c,3,x,y)) return s; continue; }
     if(d<5){ int r=weapon_arrow_find(c,d+1,x,y); if(r) return r; } }
   return 0; }
 static u64 command_btn(u64 ctr,float x,float y);
@@ -146,23 +141,22 @@ static int forecast_tap(float x,float y){ u64 r=g_bir; if(!uobj_ok(r) || !str_eq
   u64 go=u_gameobject(r); if(!uobj_ok(go) || !u_active(go)) return 0;
   // the second command (m_CommandSubRoot, e.g. Engage when Engage is possible) sits right under "(A) Attack": test its exact box
   // first, so the slop around Attack can't take taps on its top half
-  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,0.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;
+  { u64 sub=RD64(r+0x28); if(uobj_ok(sub) && vis_hit(u_go_transform(sub),4,x,y)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;
       tm_log2("forecast subcommand",(s64)b,1); press(b); return 1; } }
-  if(go_hit(RD64(r+0x20),x,y,0.f)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; }
+  { u64 cm=RD64(r+0x20); if(uobj_ok(cm) && vis_hit(u_go_transform(cm),4,x,y)){ tm_log2("forecast command",0,0); press(BTN_A); return 1; } }
   { u64 il=RD64(r+0x40); if(uobj_ok(il) && u_active(il)){ int s=weapon_arrow_find(u_go_transform(il),0,x,y);
       if(s){ tm_log2("forecast weapon",s,0); press(s<0?BTN_LB:BTN_RB); return 1; } } }
   // the second command beside it (m_CommandSubRoot, e.g. Engage Attack when Engage is possible): the button its children name
-  { u64 sub=RD64(r+0x28); if(go_hit(sub,x,y,0.f)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;   // "CommandSub" = Icon + text: the (+) Engage prompt
+  { u64 sub=RD64(r+0x28); if(uobj_ok(sub) && vis_hit(u_go_transform(sub),4,x,y)){ u64 b=command_btn(u_go_transform(sub),x,y); if(!b) b=BTN_PLUS;   // "CommandSub" = Icon + text: the (+) Engage prompt
       tm_log2("forecast subcommand",(s64)b,0); press(b); return 1; } }
   // anything else on the two info panels (m_InfoLeft / m_InfoRight +0x40 / +0x48): X Details on that element
   for(int k=0;k<2;k++){ u64 pg=RD64(r+0x40+8ul*k); if(!uobj_ok(pg) || !u_active(pg)) continue;
-    float x0=1e9f,y0=1e9f,x1=-1e9f,y1=-1e9f; kh_box_add(u_go_transform(pg),0,&x0,&y0,&x1,&y1);
-    if(x1>x0 && x>=x0 && x<x1 && y>=y0 && y<y1){ details_at(x,y,BTN_X); return 1; } }
+    if(vis_hit(u_go_transform(pg),6,x,y)){ details_at(x,y,BTN_X); return 1; } }
   return 0; }
 
 // a "Command" button object (children named after their button: A, B, ...): the button of its active child, 0 if missed
 static u64 command_btn(u64 ctr,float x,float y){ if(!uobj_ok(ctr)) return 0; u64 go=u_gameobject(ctr); if(!uobj_ok(go) || !u_active(go)) return 0;
-  float x0,y0,x1,y1; if(!tr_box(ctr,0,&x0,&y0,&x1,&y1) || x<x0 || x>=x1 || y<y0 || y>=y1) return 0;   // battle UI: exact box (user, 2026-11-17)
+  if(!vis_hit(ctr,4,x,y)) return 0;   // battle UI: only where it is drawn (user, 2026-11-17)
   int k=u_child_count(ctr); if(k>8) k=8;
   for(int i=0;i<k;i++){ u64 c=u_child(ctr,i); if(!uobj_ok(c)) continue; u64 cg=u_gameobject(c); if(!uobj_ok(cg) || !u_active(cg)) continue;
     u64 b=kh_btn_named(u_name(c)); if(b) return b; }

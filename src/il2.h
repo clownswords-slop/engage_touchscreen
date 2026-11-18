@@ -100,10 +100,35 @@ static int tmp_box(u64 tr,float*x0,float*y0,float*x1,float*y1){
   V3 p0={b.c[0]-b.e[0],b.c[1]-b.e[1],0}, p1={b.c[0]+b.e[0],b.c[1]+b.e[1],0};
   float ax,ay,bx,by; to720(0,u_tpoint(tr,p0),&ax,&ay); to720(0,u_tpoint(tr,p1),&bx,&by);
   *x0=ax<bx?ax:bx; *x1=ax<bx?bx:ax; *y0=ay<by?ay:by; *y1=ay<by?by:ay; return *x1>*x0; }
+// (x, y) on something drawn under tr (tr and its active children to depth d): a piece counts only where it is visible, an
+// enabled UnityEngine.UI.Graphic with colour alpha (m_Color +0x20, a at +0x2c) seen through its CanvasGroups; a text by its
+// glyphs' bounds (tmp_box), any other graphic by its rect. Empty containers and gaps between the pieces are not hits.
+// Pieces over 300 px tall or a third of the screen (portraits, screen-wide dimmers) never count; a full-width bar does.
+static u64 g_t_gr; static int g_t_gr_tried;
+static int vis_piece(u64 tr,float x,float y){
+  if(!g_t_gr_tried){ g_t_gr_tried=1; g_t_gr=il_type("UnityEngine.UI.Graphic, UnityEngine.UI"); }
+  if(!g_t_gr) return 0; u64 g=u_get_comp(tr,g_t_gr); if(!uobj_ok(g) || !u_enabled(g)) return 0;
+  float ca=*(volatile float*)(g+0x2c); if(!(ca>0.05f)) return 0;
+  float x0,y0,x1,y1; if(!tmp_box(tr,&x0,&y0,&x1,&y1) && !tr_box(tr,0,&x0,&y0,&x1,&y1)) return 0;
+  if(y1-y0>300.f || (x1-x0)*(y1-y0)>1280.f*720.f/3.f || x<x0 || x>=x1 || y<y0 || y>=y1) return 0;
+  return ui_alpha(tr)>=0.05f; }
+static int vis_hit(u64 tr,int d,float x,float y){ if(!uobj_ok(tr)) return 0; u64 go=u_gameobject(tr); if(!uobj_ok(go) || !u_active(go)) return 0;
+  if(vis_piece(tr,x,y)) return 1; if(d<=0) return 0; int n=u_child_count(tr); if(n>24) n=24;
+  for(int i=0;i<n;i++){ u64 c=u_child(tr,i); if(uobj_ok(c) && vis_hit(c,d-1,x,y)) return 1; }
+  return 0; }
 #ifdef TM_DEBUG
 static void os_ilstr(u64 s);
 // print a transform subtree: name, active flag, 720p box
 static int g_tree_n;
+// vis_hit's view of a subtree: graphic (enabled, colour alpha), its box, ui alpha, hit
+static void dbg_vis(u64 tr,int d,int maxd,float x,float y){ if(!uobj_ok(tr) || g_tree_n>=150) return; g_tree_n++; u64 go=u_gameobject(tr);
+  if(!uobj_ok(go) || !u_active(go)) return;
+  for(int k=0;k<d;k++) oc(' '); os_ilstr(u_name(tr));
+  if(!g_t_gr_tried){ g_t_gr_tried=1; g_t_gr=il_type("UnityEngine.UI.Graphic, UnityEngine.UI"); }
+  u64 g= g_t_gr ? u_get_comp(tr,g_t_gr) : 0; if(uobj_ok(g)){ os(" G"); oi(u_enabled(g)); os(" a="); of(*(volatile float*)(g+0x2c)); } else if(!g_t_gr) os(" notype");
+  float x0,y0,x1,y1; if(tmp_box(tr,&x0,&y0,&x1,&y1)) os(" T"); else if(!tr_box(tr,0,&x0,&y0,&x1,&y1)) x0=y0=x1=y1=0;
+  oc(' '); oi((s64)x0); oc(','); oi((s64)y0); oc(' '); oi((s64)x1); oc(','); oi((s64)y1); os(" ua="); of(ui_alpha(tr)); if(vis_piece(tr,x,y)) os(" HIT"); oc(10);
+  if(d>=maxd) return; int n=u_child_count(tr); for(int i=0;i<n && i<40;i++) dbg_vis(u_child(tr,i),d+1,maxd,x,y); }
 static void dbg_tree(u64 tr,int d,int maxd){ if(!uobj_ok(tr) || g_tree_n>=180) return; g_tree_n++;
   for(int k=0;k<d;k++) oc(' '); u64 go=u_gameobject(tr); os_ilstr(u_name(tr)); os(uobj_ok(go)&&u_active(go)?" +":" -");
   float x0,y0,x1,y1; if(tr_box(tr,0,&x0,&y0,&x1,&y1)){ oc(' '); oi((s64)x0); oc(','); oi((s64)y0); oc(' '); oi((s64)x1); oc(','); oi((s64)y1); } oc(' '); ox(tr); oc('\n');

@@ -246,6 +246,17 @@ static void dbg_ext(const char*p){
   else if(starts(p,"units")){   // UnitPool.Get(i): x,z, force type, ident
     for(int i=0;i<250;i++){ u64 u=((u64(*)(int,u64))M(0x1c53f80))(i,0); if(!u||!mem_ok(u)) continue; u64 f=RD64(u+0x50); if(!f||!mem_ok(f)) continue;
       oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); os(" hp "); oi(RD8(u+0x8c)); oc('\n'); } }
+  else if(starts(p,"vis")){ p+=3; u64 o=parse_num(&p); int d=(int)parse_num(&p); float x=(float)(s64)parse_num(&p), y=(float)(s64)parse_num(&p);
+    if(!o){ u64 pr=proc_find("UnitInfo"); u64 arr= pr ? RD64(pr+0x80) : 0; if(arr && mem_ok(arr)){ int n=(int)RD64(arr+0x18); if(n>4) n=4;
+        for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd)) continue; os("win "); oi(i); os(" vis "); oi(RD8(wd+0x40)); os(" unit "); ox(RD64(wd+0x18)); oc(10);
+          u64 uw=RD64(wd+0x30); if(uw && mem_ok(uw) && uobj_ok(RD64(uw+0x18))){ g_tree_n=0; dbg_vis(u_go_transform(RD64(uw+0x18)),0,d?d:6,x,y); } } } return; }
+    u64 tr=any_transform(o); g_tree_n=0; if(!tr){ os("none"); oc(10); return; } dbg_vis(tr,0,d?d:6,x,y); }
+  else if(starts(p,"rwslots")){ u64 m=g_menu; if(!m || !str_eq(il_cname(m),"RewindMenu")){ os("no rewind"); oc(10); return; } u64 c=RD64(m+0x70);
+    os("sel "); oi(RDS32(m+0xa0)); os(" scroll "); oi(RDS32(m+0xa8)); os(" now "); oi(RDS32(m+0xd0)); oc(10);
+    for(int i=0;i<11;i++){ u64 sl=((u64(*)(u64,int,u64))M(0x201b630))(c,i,0); oi(i); oc(' '); if(!uobj_ok(sl)){ os("null"); oc(10); continue; }
+      u64 it=RD64(sl+0x18); int ix=-1; int n=menu_items(m); for(int k=0;k<n;k++) if(menu_item(m,k)==it){ ix=k; break; }
+      os("pos "); oi(RDS32(sl+0x60)); os(" item "); oi(ix); os(" back "); oi(it && RD64(it+0x18)==sl); float x0,y0,x1,y1; u64 tr=u_transform(sl);
+      if(tr_box(tr,0,&x0,&y0,&x1,&y1)){ os(" box "); oi((s64)y0); oc(','); oi((s64)y1); } os(" a "); of(ui_alpha(tr)); oc(10); } }
   else if(starts(p,"label")){ p+=5; u64 q=parse_num(&p); os("label "); oi(proc_label(q)); oc('\n'); }
   else if(starts(p,"drag")){ p+=4; dg_x0=(float)(s64)parse_num(&p); dg_y0=(float)(s64)parse_num(&p); dg_x1=(float)(s64)parse_num(&p); dg_y1=(float)(s64)parse_num(&p);
     dg_n=(int)parse_num(&p); dg_hold=(int)parse_num(&p); dg_i=0; os("drag\n"); }
