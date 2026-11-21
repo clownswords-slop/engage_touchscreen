@@ -168,6 +168,7 @@ int _ZN2nn3hid20GetTouchScreenStatesILm16EEEiPNS0_16TouchScreenStateIXT_EEEi(Tou
   return r; }
 
 #ifdef TM_DEBUG
+static void ou16(u64 s){ if(!s || !mem_ok(s)) return; int n=*(volatile int*)(s+0x10); if(n>40) n=40; for(int i=0;i<n;i++){ unsigned c=*(volatile unsigned short*)(s+0x14+2*i); if(c<0x80) oc((char)c); else if(c<0x800){ oc((char)(0xc0|(c>>6))); oc((char)(0x80|(c&63))); } else { oc((char)(0xe0|(c>>12))); oc((char)(0x80|((c>>6)&63))); oc((char)(0x80|(c&63))); } } }
 static void dbg_ext(const char*p){
   if(starts(p,"hstat")){   // calls per hid read and npad id since the last hstat (id slot 8 = 0x10, 9 = handheld 0x20)
     const char*nm[8]={"full","hand","dual","left","right","full1","hand1","?"};
@@ -245,7 +246,7 @@ static void dbg_ext(const char*p){
   else if(starts(p,"tscr")){ p+=4; int x=(int)parse_num(&p), z=(int)parse_num(&p); float sx,sy; if(tile_screen(x,z,&sx,&sy)){ os("scr "); oi((s64)sx); oc(32); oi((s64)sy); oc(10); } else os("none"); }
   else if(starts(p,"units")){   // UnitPool.Get(i): x,z, force type, ident
     for(int i=0;i<250;i++){ u64 u=((u64(*)(int,u64))M(0x1c53f80))(i,0); if(!u||!mem_ok(u)) continue; u64 f=RD64(u+0x50); if(!f||!mem_ok(f)) continue;
-      oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); os(" hp "); oi(RD8(u+0x8c)); oc('\n'); } }
+      oi(i); os(" at "); oi((signed char)RD8(u+0xa0)); oc(44); oi((signed char)RD8(u+0xa1)); os(" force "); oi(RDS32(f+0x20)); os(" id "); oi(RDS32(u+0x38)); oc(' '); ox(u); os(" hp "); oi(RD8(u+0x8c)); { u64 pd=RD64(u+0x40); if(pd && mem_ok(pd)){ oc(32); ou16(RD64(pd+0x20)); } } oc('\n'); } }
   else if(starts(p,"vis")){ p+=3; u64 o=parse_num(&p); int d=(int)parse_num(&p); float x=(float)(s64)parse_num(&p), y=(float)(s64)parse_num(&p);
     if(!o){ u64 pr=proc_find("UnitInfo"); u64 arr= pr ? RD64(pr+0x80) : 0; if(arr && mem_ok(arr)){ int n=(int)RD64(arr+0x18); if(n>4) n=4;
         for(int i=0;i<n;i++){ u64 wd=RD64(arr+0x20+8ul*i); if(!wd || !mem_ok(wd)) continue; os("win "); oi(i); os(" vis "); oi(RD8(wd+0x40)); os(" unit "); ox(RD64(wd+0x18)); oc(10);
@@ -257,6 +258,12 @@ static void dbg_ext(const char*p){
       u64 it=RD64(sl+0x18); int ix=-1; int n=menu_items(m); for(int k=0;k<n;k++) if(menu_item(m,k)==it){ ix=k; break; }
       os("pos "); oi(RDS32(sl+0x60)); os(" item "); oi(ix); os(" back "); oi(it && RD64(it+0x18)==sl); float x0,y0,x1,y1; u64 tr=u_transform(sl);
       if(tr_box(tr,0,&x0,&y0,&x1,&y1)){ os(" box "); oi((s64)y0); oc(','); oi((s64)y1); } os(" a "); of(ui_alpha(tr)); oc(10); } }
+  else if(starts(p,"tlist")){ u64 mt=map_target(); u64 ds= mt && mem_ok(mt) ? RD64(mt+0x38) : 0; if(!ds || !mem_ok(ds)){ os("no target set"); oc(10); return; }
+    u64 ts=proc_find("MapSequenceTargetSelect"); u64 cur= ts ? RD64(ts+0x78) : 0; os("mind "); oi(RDS32(mt+0x2c)); os(" cur "); ox(cur); oc(10);
+    int n=((int(*)(u64,u64))M(0x1e42100))(ds,0); if(n>40) n=40;
+    for(int k=0;k<n;k++){ u64 e=((u64(*)(u64,int,u64))M(0x1e42150))(ds,k,0); if(!e || !mem_ok(e)) continue; oi(k); os(" at "); oi((signed char)RD8(e+0x20)); oc(','); oi((signed char)RD8(e+0x21));
+      os(" rect "); oi((signed char)RD8(e+0x22)); oc(','); oi((signed char)RD8(e+0x23)); oc(' '); oi((signed char)RD8(e+0x24)); oc(','); oi((signed char)RD8(e+0x25));
+      u64 u=RD64(e+0x18); if(u && mem_ok(u)){ u64 pd=RD64(u+0x40); if(pd && mem_ok(pd)){ oc(32); ou16(RD64(pd+0x20)); } } if(e==cur) os(" CUR"); oc(10); } }
   else if(starts(p,"label")){ p+=5; u64 q=parse_num(&p); os("label "); oi(proc_label(q)); oc('\n'); }
   else if(starts(p,"drag")){ p+=4; dg_x0=(float)(s64)parse_num(&p); dg_y0=(float)(s64)parse_num(&p); dg_x1=(float)(s64)parse_num(&p); dg_y1=(float)(s64)parse_num(&p);
     dg_n=(int)parse_num(&p); dg_hold=(int)parse_num(&p); dg_i=0; os("drag\n"); }

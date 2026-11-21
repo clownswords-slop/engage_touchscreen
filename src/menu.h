@@ -396,6 +396,7 @@ static int shop_stats_tap(float x,float y){
       float x0,y0,x1,y1; if(tr_box(u_transform(ds),0,&x0,&y0,&x1,&y1) && x1>x0 && x>=x0-6.f && x<x1+6.f && y>=y0-6.f && y<y1+6.f){ tm_log2("shop stats: X",q,j); press(BTN_X); return 1; } } }
   return 0; }
 static int details_menu(u64 m){ const char*c=il_cname(m); for(u32 j=0;j<sizeof(k_details_menus)/sizeof(k_details_menus[0]);j++) if(str_eq(c,k_details_menus[j])) return 1; return 0; }
+#define CMD_A_WAIT 4
 static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 0;
   int i=menu_hit(m,x,y); tm_log2("menu hit",i,RDS32(m+0xa0));
   // message-only dialogs ("You've received a special gift!" ItemListYesNoDialog, ...): every row is an invisible DummyMenuItem
@@ -459,7 +460,12 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   if(i==RDS32(m+0xa0)){ press(BTN_A); return 1; }
   // café ingredients (CookingMenu.FoodstuffMenu): the last row is the Confirm button, not an ingredient: one tap
   int btn_row= str_eq(il_cname(m),"FoodstuffMenu") && i==menu_items(m)-1;
-  menu_select(m,i); if(btn_row || !menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
+  menu_select(m,i);
+  // battle unit commands (MapUnitCommandMenu): Dragon Vein / Gambit rows (SubMenuItem, CommandSkillMenuItem) took an A in the
+  // frame the cursor moved onto them as a cancel (their sub menu opened and closed: the command menu came back, the user,
+  // 2026-11-21); the A waits a few frames there, as after a d-pad step
+  if(str_eq(il_cname(m),"MapUnitCommandMenu")) q_push(0,0,CMD_A_WAIT);
+  if(btn_row || !menu_two_tap(m)) press(BTN_A);   // one tap selects and confirms, except unit / save slot lists
   return 1; }
 
 // BasicMenu.MoveFrontCursorFrom(fromMenuItem, frame) 0x245d710: the cursor slides from the other list over `frame` frames; one frame
@@ -478,10 +484,16 @@ static void hk_move_front(u64 m,u64 from,float frame,u64 mi){
 // Manage Items: InventoryUnitItemMenu.SetSelectIndexOnChangeMenu 0x2798a70 / InventoryPoolItemMenu's 0x2797ce0 pick the row the
 // cursor lands on when ZL / ZR switch lists; for a tapped switch the tapped row is taken there instead
 static u64 o_chg_unit, o_chg_pool;
-static void chg_apply(u64 m){ if(m==g_pend_menu && !g_pend_tabs && g_pend_idx>=0 && g_pend_idx<menu_items(m) && g_pend_idx!=RDS32(m+0xa0)){
-    tm_log2("list switch: row",g_pend_idx,RDS32(m+0xa0)); ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,g_pend_idx,il_vmi(m,BM_SETSEL)); } }
-static void hk_chg_unit(u64 m,u64 a,u64 mi){ ((void(*)(u64,u64,u64))o_chg_unit)(m,a,mi); chg_apply(m); }
-static void hk_chg_pool(u64 m,u64 a,u64 b,u64 mi){ ((void(*)(u64,u64,u64,u64))o_chg_pool)(m,a,b,mi); chg_apply(m); }
+// The pick ends with SortieInventoryManager.SetItemInfo on the selected row (the item description), so the tapped row goes through
+// the game's own function again (row = its scroll +0xa8 + the on-screen index it takes): a bare SetSelectIndex left the
+// description on the game's pick, the top item (the user, 2026-11-20)
+static int chg_want(u64 m){ return m==g_pend_menu && !g_pend_tabs && g_pend_idx>=0 && g_pend_idx<menu_items(m) && g_pend_idx!=RDS32(m+0xa0); }
+static void chg_fallback(u64 m){ if(g_pend_idx!=RDS32(m+0xa0)){ tm_log2("list switch: row (fallback)",g_pend_idx,RDS32(m+0xa0));
+    ((void(*)(u64,s32,u64))il_vfn(m,BM_SETSEL))(m,g_pend_idx,il_vmi(m,BM_SETSEL)); } }
+static void hk_chg_unit(u64 m,u64 a,u64 mi){ ((void(*)(u64,u64,u64))o_chg_unit)(m,a,mi);
+  if(chg_want(m)){ int ci=g_pend_idx-RDS32(m+0xa8); tm_log2("list switch: row",g_pend_idx,ci); ((void(*)(u64,u64,u64))o_chg_unit)(m,(u64)(s64)ci,mi); chg_fallback(m); } }
+static void hk_chg_pool(u64 m,u64 a,u64 b,u64 mi){ ((void(*)(u64,u64,u64,u64))o_chg_pool)(m,a,b,mi);
+  if(chg_want(m)){ int ci=g_pend_idx-RDS32(m+0xa8); tm_log2("list switch: row",g_pend_idx,ci); ((void(*)(u64,u64,u64,u64))o_chg_pool)(m,(u64)(s64)ci,b,mi); chg_fallback(m); } }
 static void menu_init(void){ o_tickinput=hook_install(M(BM_TICKINPUT),(u64)&hk_tickinput); o_move_front=hook_install(M(0x245d710),(u64)&hk_move_front);
   o_chg_unit=hook_install(M(0x2798a70),(u64)&hk_chg_unit); o_chg_pool=hook_install(M(0x2797ce0),(u64)&hk_chg_pool);
   Buf b={0}; bstr(&b,"[engagetouch] hook TickInput "); bhex(&b,o_tickinput); bstr(&b," err "); bhex(&b,g_hook_err); bstr(&b," rc "); bhex(&b,g_patch_rc); bflush(&b); }

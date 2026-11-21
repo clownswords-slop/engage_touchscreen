@@ -90,6 +90,11 @@ static int target_tap(u64 ts,int tx,int tz){ u64 mt=map_target(); if(!mt || !mem
     for(int k=0;k<n && i<0;k++){ u64 e=((u64(*)(u64,int,u64))M(0x1e42150))(ds,k,0); if(!e || !mem_ok(e)) continue;
       int x1=(signed char)RD8(e+0x22), z1=(signed char)RD8(e+0x23), x2=(signed char)RD8(e+0x24), z2=(signed char)RD8(e+0x25);
       if((x2>x1 || z2>z1) && tx>=x1 && tx<=x2 && tz>=z1 && tz<=z2) i=k; }
+    // a large unit (PersonData +0x8c BmapSize, as Unit.get_BmapSize reads it: 2 = 2x2 from the unit's tile +0xa0 / +0xa1) is
+    // listed at one of its tiles: a tap on any tile of its body picks it
+    for(int k=0;k<n && i<0;k++){ u64 e=((u64(*)(u64,int,u64))M(0x1e42150))(ds,k,0); if(!e || !mem_ok(e)) continue; u64 u=RD64(e+0x18);
+      if(!u || !mem_ok(u)) continue; u64 pd=RD64(u+0x40); int s= pd && mem_ok(pd) ? RD8(pd+0x8c) : 1; if(s<2) continue;
+      int ux=(signed char)RD8(u+0xa0), uz=(signed char)RD8(u+0xa1); if(tx>=ux && tx<ux+s && tz>=uz && tz<uz+s) i=k; }
     if(i>=0) tm_log2("target rect",i,0); }
   tm_log2("target idx",i,0); if(i<0) return 1;   // not a target: swallow
   u64 d=((u64(*)(u64,int,u64))M(0x1e42150))(ds,i,0); if(!d) return 1;
@@ -162,10 +167,13 @@ static u64 command_btn(u64 ctr,float x,float y){ if(!uobj_ok(ctr)) return 0; u64
     u64 b=kh_btn_named(u_name(c)); if(b) return b; }
   return 0; }
 // ---- Engage confirmation (App.MapSequenceEngageConfirm, +0x78 m_GameObject "BattleInfoEngageRoot"): the "(A) Engage" button
-// is its child "Command"; a tap on it presses that button, anywhere else is B (cancel: the screen shows no Back prompt)
+// is its child "Command"; a tap on it presses that button, a tap on the unit is A, anything else does nothing (taps are never B)
 static int engage_confirm_tap(u64 p,float x,float y){ u64 go=RD64(p+0x78); if(!uobj_ok(go)) return 1;
   u64 b=command_btn(tr_child_named(u_go_transform(go),"Command"),x,y); tm_log2("engage confirm",(s64)b,0);
-  if(b) press(b); return 1; }
+  if(b){ press(b); return 1; }
+  // the unit itself (the map cursor's tile; the user, 2026-11-20) confirms too, unless the tap is on the screen's own drawn pieces
+  int tx,tz; if(!vis_hit(u_go_transform(go),6,x,y) && map_tile_at(x,y,&tx,&tz) && tx==cursor_x() && tz==cursor_z()){ tm_log2("engage confirm: unit",tx,tz); press(BTN_A); }
+  return 1; }
 
 // ---- hub / explore free roam: a tap on the "(A) Talk" / access label over the interactable in reach = A (it is that prompt) ----
 static int hub_tap(float x,float y){ u64 h=g_hubhelp; if(!h || g_poll-g_hubhelp_poll>4 || !uobj_ok(h)) return 1;
@@ -376,6 +384,7 @@ static int screen_tap(float x,float y){ u64 p;
   if((p=proc_find("MascotMenuSequence")) && !proc_sus(p)){ tm_log2("sommie pet: A",0,0); press(BTN_A); return 1; }   // Sommie -> Pet: "(B) Back (A) Pet"
   if((p=proc_find("UnitInfoSequence")) && !proc_sus(p)) return unitinfo_tap(x,y);
   if((p=proc_find("MapSequenceEngageConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);
+  if((p=proc_find("MapSequenceAlternateConfirm")) && !proc_sus(p)) return engage_confirm_tap(p,x,y);   // Eirika's ring: "Night and Day" (same layout)
   if((p=proc_find("TalkLogSequence")) && !proc_sus(p)) return talklog_tap(x,y);
   // dialogue (TalkKeyWait runs while the text is written too): A completes the text / next page. A tap holds A for 6 frames like a
   // finger on the button (a 2-frame press could fall in the moments a new page ignores input: "taps sometimes don't register")
