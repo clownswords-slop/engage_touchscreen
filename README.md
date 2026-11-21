@@ -1,6 +1,6 @@
-# Fire Emblem Engage Touchscreen Support (work in progress)
+# Fire Emblem Engage Touchscreen Support
 
-fully opus 5.5 vibecoded mod that adds touchscreen/mouse support to engage. covering the menus and verbs I see while playing via ryujinx and a mouse. releasing early as most menus/systems are already covered, and I'm curious to know if there are issues with it running alongside other mods/setups (namely alongside cobalt, which I tried to handle)
+fully opus 5.5 vibecoded mod that adds touchscreen/mouse support to engage. covered the menus and verbs I saw while playing via ryujinx and a mouse
 
 #### features
 - tap to select menu items, tiles, "buttons" that showed contextual controls (e.g. "(Zr) Additional Info" during battle), and info on status screens
