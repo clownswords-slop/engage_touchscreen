@@ -411,12 +411,13 @@ static int menu_tap(float x,float y){ u64 m=g_menu; if(!m || !mem_ok(m)) return 
   // battle map unit -> Items (ItemMenu): the "In-Use Stats" panel and the text under the rows swap with X (no prompt shown):
   // a tap there (the rows' width, below the last row) is X
   // also prep Manage Items' In-Use Stats (X Cycle Info) under the unit's items, whichever list has the focus
-  // and battle map unit -> Attack (AttackMenu, weapon selection): its greyed rows (Elixir, empty slots) have no box, so the
+  // and battle map unit -> Attack / Staff (AttackMenu, MapItemMenu.RodMenu): their greyed rows (Elixir, empty slots, staves that
+  // can't be used here) have no box, so the
   // panel starts below the last row slot (row 0's bottom + the row step for each row after it), not below the last boxed row
-  if(i<0 && (str_eq(il_cname(m),"ItemMenu") || str_eq(il_cname(m),"AttackMenu") || str_eq(il_cname(m),"InventoryUnitItemMenu") || str_eq(il_cname(m),"InventoryPoolItemMenu"))){ float bx0,by0,bx1,by1;
+  if(i<0 && (str_eq(il_cname(m),"ItemMenu") || str_eq(il_cname(m),"AttackMenu") || str_eq(il_cname(m),"RodMenu") || str_eq(il_cname(m),"InventoryUnitItemMenu") || str_eq(il_cname(m),"InventoryPoolItemMenu"))){ float bx0,by0,bx1,by1;
     u64 um= str_eq(il_cname(m),"InventoryPoolItemMenu") ? proc_find("InventoryUnitItemMenu") : m;
     int ok= um && mem_ok(um) && menu_bounds(um,&bx0,&by0,&bx1,&by1);
-    if(ok && str_eq(il_cname(m),"AttackMenu")){ u64 cam=menu_cam(m); int n=menu_items(m); float a0,b0,a1,b1,c0,d0,c1,d1;
+    if(ok && (str_eq(il_cname(m),"AttackMenu") || str_eq(il_cname(m),"RodMenu"))){ u64 cam=menu_cam(m); int n=menu_items(m); float a0,b0,a1,b1,c0,d0,c1,d1;
       if(n>1 && comp_box(RD64(menu_item(m,0)+0x18),cam,&a0,&b0,&a1,&b1) && comp_box(RD64(menu_item(m,1)+0x18),cam,&c0,&d0,&c1,&d1) && d0>b0){
         float yb=b1+(float)(n-1)*(d0-b0); if(yb>by1) by1=yb; } }
     if(ok && x>=bx0-10.f && x<bx1+40.f && y>by1){ tm_log2("item panel: X",0,0); press(BTN_X); return 1; } }
